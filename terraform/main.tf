@@ -18,7 +18,7 @@ provider "azurerm" {
 # 1. Create a Resource Group to hold everything
 resource "azurerm_resource_group" "rg" {
   name     = "microservices-demo-rg"
-  location = "Japan East" # Feel free to change this to a region closer to you
+  location = "southeastasia" # Feel free to change this to a region closer to you
 }
 
 # 2. Create the AKS Cluster
