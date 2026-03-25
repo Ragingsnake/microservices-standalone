@@ -1,0 +1,42 @@
+name: Deploy to Azure AKS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  provision-and-deploy:
+    if: contains(github.event.head_commit.message, '[deploy-azure]')
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+
+    - name: Terraform Init
+      working-directory: ./terraform
+      run: |
+        terraform init \
+          -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+          -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE }}" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=terraform.tfstate"
+
+    - name: Terraform Apply
+      working-directory: ./terraform
+      run: terraform apply -auto-approve
+
+    - name: Get AKS Credentials
+      run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
+
+    - name: Deploy Microservices to AKS
+      run: kubectl apply -f release/kubernetes-manifests.yaml
