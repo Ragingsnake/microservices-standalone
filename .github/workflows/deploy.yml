@@ -33,6 +33,13 @@ jobs:
         role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
         aws-region: ${{ env.AWS_REGION }}
 
+    - name: Show AWS target context
+      run: |
+        echo "AWS region: $AWS_REGION"
+        echo "EKS cluster: $EKS_CLUSTER_NAME"
+        aws sts get-caller-identity
+        aws eks list-clusters --region "$AWS_REGION"
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
 
@@ -61,9 +68,59 @@ jobs:
     - name: Update kubeconfig for EKS
       run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
+    - name: Show kubectl context
+      run: |
+        kubectl config current-context
+        kubectl get nodes -o wide
+
     # Get AKS Credentials (legacy, retained for fallback)
     # - name: Get AKS Credentials
     #   run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
 
     - name: Deploy Microservices to EKS
       run: kubectl apply -f release/kubernetes-manifests.yaml
+
+    - name: Verify resources after deploy
+      run: |
+        kubectl get ns
+        kubectl get deploy,svc -A
+
+    - name: Wait for frontend endpoint
+      id: frontend
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        URL=""
+        for i in {1..60}; do
+          HOSTNAME=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+          IP=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
+          if [ -n "$HOSTNAME" ]; then
+            URL="http://$HOSTNAME"
+            break
+          fi
+
+          if [ -n "$IP" ]; then
+            URL="http://$IP"
+            break
+          fi
+
+          echo "Waiting for frontend LoadBalancer endpoint... ($i/60)"
+          sleep 10
+        done
+
+        if [ -z "$URL" ]; then
+          echo "Frontend endpoint not ready yet. Check service events:"
+          kubectl describe svc frontend-external || true
+          exit 1
+        fi
+
+        echo "frontend_url=$URL" >> "$GITHUB_OUTPUT"
+        echo "Frontend URL: $URL"
+
+    - name: Show frontend URL
+      run: |
+        echo "Frontend URL: ${{ steps.frontend.outputs.frontend_url }}"
+        echo "## Deployment Result" >> "$GITHUB_STEP_SUMMARY"
+        echo "Frontend URL: ${{ steps.frontend.outputs.frontend_url }}" >> "$GITHUB_STEP_SUMMARY"
