@@ -1,4 +1,4 @@
-name: Deploy to Azure AKS
+name: Deploy to AWS EKS
 
 on:
   push:
@@ -7,36 +7,63 @@ on:
 
 jobs:
   provision-and-deploy:
-    if: contains(github.event.head_commit.message, '[deploy-azure]')
+    if: contains(github.event.head_commit.message, '[deploy-aws]')
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v3
 
-    - name: Azure Login
-      uses: azure/login@v1
+    # Azure Login (legacy, retained for fallback)
+    # - name: Azure Login
+    #   uses: azure/login@v1
+    #   with:
+    #     creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
 
-    - name: Terraform Init
+    - name: Terraform Init (S3 Backend)
       working-directory: ./terraform
       run: |
         terraform init \
-          -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
-          -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE }}" \
-          -backend-config="container_name=tfstate" \
-          -backend-config="key=terraform.tfstate"
+          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+          -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+
+    # Terraform Init (Azure backend legacy, retained for fallback)
+    # - name: Terraform Init
+    #   working-directory: ./terraform
+    #   run: |
+    #     terraform init \
+    #       -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+    #       -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE }}" \
+    #       -backend-config="container_name=tfstate" \
+    #       -backend-config="key=terraform.tfstate"
 
     - name: Terraform Apply
       working-directory: ./terraform
       run: terraform apply -auto-approve
 
-    - name: Get AKS Credentials
-      run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
+    - name: Update kubeconfig for EKS
+      run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
-    - name: Deploy Microservices to AKS
+    # Get AKS Credentials (legacy, retained for fallback)
+    # - name: Get AKS Credentials
+    #   run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
+
+    - name: Deploy Microservices to EKS
       run: kubectl apply -f release/kubernetes-manifests.yaml

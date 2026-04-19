@@ -1,46 +1,199 @@
 terraform {
   required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
     }
   }
-  # This tells Terraform to store its memory (state) in Azure, 
-  # so GitHub Actions can safely keep track of what it builds.
-  backend "azurerm" {} 
+
+  # Configure AWS remote state backend values via -backend-config flags
+  # or by creating a backend config file for your environment.
+  backend "s3" {}
 }
 
-# Configure the Microsoft Azure Provider
-provider "azurerm" {
-  features {}
+provider "aws" {
+  region = "ap-southeast-1"
 }
 
-# 1. Create a Resource Group to hold everything
-resource "azurerm_resource_group" "rg" {
-  name     = "microservices-demo-rg"
-  location = "southeastasia" # Feel free to change this to a region closer to you
-}
-
-# 2. Create the AKS Cluster
-resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "microservices-aks"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-  dns_prefix          = "microservicesaks"
-
-  # The actual virtual machines that will run your containers
-  default_node_pool {
-    name       = "default"
-    node_count = 2
-    vm_size    = "Standard_D2s_v3" # Standard size, capable of running the demo
-  }
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  tags = {
+locals {
+  cluster_name = "microservices-eks"
+  common_tags = {
     Environment = "Development"
     Project     = "MicroservicesDemo"
   }
+}
+
+# Networking for EKS
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = merge(local.common_tags, {
+    Name = "microservices-vpc"
+  })
+}
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = merge(local.common_tags, {
+    Name = "microservices-igw"
+  })
+}
+
+resource "aws_subnet" "public_a" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "ap-southeast-1a"
+  map_public_ip_on_launch = true
+
+  tags = merge(local.common_tags, {
+    Name                                      = "microservices-public-a"
+    "kubernetes.io/role/elb"                 = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+  })
+}
+
+resource "aws_subnet" "public_b" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "ap-southeast-1b"
+  map_public_ip_on_launch = true
+
+  tags = merge(local.common_tags, {
+    Name                                      = "microservices-public-b"
+    "kubernetes.io/role/elb"                 = "1"
+    "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+  })
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = merge(local.common_tags, {
+    Name = "microservices-public-rt"
+  })
+}
+
+resource "aws_route_table_association" "public_a" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "public_b" {
+  subnet_id      = aws_subnet.public_b.id
+  route_table_id = aws_route_table.public.id
+}
+
+# IAM role for EKS control plane
+resource "aws_iam_role" "eks_cluster" {
+  name = "microservices-eks-cluster-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "eks.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
+  role       = aws_iam_role.eks_cluster.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+# EKS cluster
+resource "aws_eks_cluster" "eks" {
+  name     = local.cluster_name
+  role_arn = aws_iam_role.eks_cluster.arn
+
+  vpc_config {
+    subnet_ids = [
+      aws_subnet.public_a.id,
+      aws_subnet.public_b.id,
+    ]
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_cluster_policy,
+  ]
+
+  tags = local.common_tags
+}
+
+# IAM role for worker nodes
+resource "aws_iam_role" "eks_node_group" {
+  name = "microservices-eks-node-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_iam_role_policy_attachment" "eks_worker_node" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_cni" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "eks_ecr_readonly" {
+  role       = aws_iam_role.eks_node_group.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+# Managed node group
+resource "aws_eks_node_group" "default" {
+  cluster_name    = aws_eks_cluster.eks.name
+  node_group_name = "default"
+  node_role_arn   = aws_iam_role.eks_node_group.arn
+  subnet_ids = [
+    aws_subnet.public_a.id,
+    aws_subnet.public_b.id,
+  ]
+
+  scaling_config {
+    desired_size = 2
+    min_size     = 2
+    max_size     = 3
+  }
+
+  instance_types = ["t3.medium"]
+  ami_type       = "AL2_x86_64"
+
+  depends_on = [
+    aws_iam_role_policy_attachment.eks_worker_node,
+    aws_iam_role_policy_attachment.eks_cni,
+    aws_iam_role_policy_attachment.eks_ecr_readonly,
+  ]
+
+  tags = local.common_tags
 }
