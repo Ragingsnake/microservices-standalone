@@ -1,0 +1,64 @@
+name: Destroy AWS EKS Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: "Type DESTROY to confirm infrastructure teardown"
+        required: true
+        default: ""
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
+    steps:
+    - name: Validate confirmation
+      shell: bash
+      run: |
+        if [ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]; then
+          echo "Refusing to run destroy. Enter DESTROY in confirm_destroy to proceed."
+          exit 1
+        fi
+
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Show AWS target context
+      run: |
+        echo "AWS region: $AWS_REGION"
+        echo "EKS cluster: $EKS_CLUSTER_NAME"
+        aws sts get-caller-identity
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+
+    - name: Terraform Init (S3 Backend)
+      working-directory: ./terraform
+      run: |
+        terraform init \
+          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+          -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+
+    - name: Terraform Destroy
+      working-directory: ./terraform
+      run: terraform destroy -auto-approve
+
+    - name: Destroy summary
+      run: |
+        echo "## Destroy Result" >> "$GITHUB_STEP_SUMMARY"
+        echo "Terraform destroy completed for cluster: $EKS_CLUSTER_NAME in region: $AWS_REGION" >> "$GITHUB_STEP_SUMMARY"
