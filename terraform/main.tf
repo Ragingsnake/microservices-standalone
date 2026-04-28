@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   # Configure AWS remote state backend values via -backend-config flags
@@ -196,4 +200,21 @@ resource "aws_eks_node_group" "default" {
   ]
 
   tags = local.common_tags
+}
+
+# Ensure Kubernetes LoadBalancer services are removed during Terraform destroy
+# so AWS can release ELB ENIs before subnet deletion starts.
+resource "null_resource" "k8s_destroy_cleanup" {
+  triggers = {
+    manifest_sha = filesha256("${path.module}/../release/kubernetes-manifests.yaml")
+  }
+
+  depends_on = [
+    aws_eks_node_group.default,
+  ]
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "kubectl delete -f ${path.module}/../release/kubernetes-manifests.yaml --ignore-not-found=true || true"
+  }
 }

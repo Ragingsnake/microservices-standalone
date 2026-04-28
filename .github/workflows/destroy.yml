@@ -46,6 +46,32 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
 
+    - name: Best-effort Kubernetes cleanup before destroy
+      shell: bash
+      run: |
+        set +e
+
+        aws eks describe-cluster --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION" >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+          echo "EKS cluster does not exist or is not reachable. Skipping Kubernetes cleanup."
+          exit 0
+        fi
+
+        aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+        # Delete app resources first so cloud load balancer dependencies are released before VPC teardown.
+        kubectl delete -f release/kubernetes-manifests.yaml --ignore-not-found=true
+
+        for i in {1..30}; do
+          FRONTEND_EXISTS=$(kubectl get svc frontend-external -o name 2>/dev/null)
+          if [ -z "$FRONTEND_EXISTS" ]; then
+            echo "frontend-external service deleted."
+            break
+          fi
+          echo "Waiting for frontend-external service deletion... ($i/30)"
+          sleep 10
+        done
+
     - name: Terraform Init (S3 Backend)
       working-directory: ./terraform
       run: |
@@ -54,9 +80,77 @@ jobs:
           -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
           -backend-config="region=${{ env.AWS_REGION }}"
 
+    - name: Terraform staged destroy (EKS first)
+      working-directory: ./terraform
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        STATE_LIST=$(terraform state list || true)
+
+        if echo "$STATE_LIST" | grep -q '^aws_eks_node_group.default$'; then
+          echo "Destroying EKS node group first..."
+          terraform destroy -auto-approve -target=aws_eks_node_group.default
+        else
+          echo "EKS node group resource not found in Terraform state."
+        fi
+
+        if echo "$STATE_LIST" | grep -q '^aws_eks_cluster.eks$'; then
+          echo "Destroying EKS cluster next..."
+          terraform destroy -auto-approve -target=aws_eks_cluster.eks
+        else
+          echo "EKS cluster resource not found in Terraform state."
+        fi
+
+    - name: Wait for ELB ENIs to drain from project VPC
+      working-directory: ./terraform
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if ! terraform state list | grep -q '^aws_vpc.main$'; then
+          echo "VPC resource not found in Terraform state. Skipping ELB ENI drain wait."
+          exit 0
+        fi
+
+        VPC_ID=$(terraform state show aws_vpc.main | awk '$1 == "id" && $2 == "=" { print $3; exit }')
+        if [ -z "$VPC_ID" ]; then
+          echo "Unable to determine VPC ID from Terraform state. Skipping ELB ENI drain wait."
+          exit 0
+        fi
+
+        for i in {1..30}; do
+          ENI_COUNT=$(aws ec2 describe-network-interfaces \
+            --filters Name=vpc-id,Values="$VPC_ID" Name=requester-id,Values=amazon-elb \
+            --query 'length(NetworkInterfaces)' --output text)
+
+          if [ "$ENI_COUNT" = "0" ]; then
+            echo "No ELB-managed ENIs remain in $VPC_ID."
+            exit 0
+          fi
+
+          echo "Waiting for ELB ENI cleanup in $VPC_ID... ($i/30, remaining: $ENI_COUNT)"
+          sleep 20
+        done
+
+        echo "Timed out waiting for ELB ENI cleanup. Proceeding to full Terraform destroy with retries."
+
     - name: Terraform Destroy
       working-directory: ./terraform
-      run: terraform destroy -auto-approve
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        for i in {1..4}; do
+          if terraform destroy -auto-approve; then
+            exit 0
+          fi
+          echo "terraform destroy failed (attempt $i/4). Waiting for AWS dependencies to clear before retry..."
+          sleep 45
+        done
+
+        echo "terraform destroy failed after retries."
+        exit 1
 
     - name: Destroy summary
       run: |
