@@ -3,7 +3,7 @@
 ## Overview
 This is a standalone, Azure-optimized version of the classic "Online Boutique" microservices architecture. I initially grabbed this to test out a full 11-tier polyglot application, but I completely gutted the original Google Cloud (GCP) configurations to make it my own.
 
-This repository is purpose-built for deploying to **Azure Kubernetes Service (AKS)** using a fully automated CI/CD pipeline. The core philosophy here is fast, reliable testing without letting infrastructure sit around and passively eat up cloud credits. 
+This repository is purpose-built for deploying to **AWS Elastic Kubernetes Service (EKS)** using an automated CI/CD pipeline. The core philosophy here is fast, reliable testing while keeping infrastructure lifecycle and costs under control.
 
 ## The Stack
 * **Infrastructure as Code (IaC):** Terraform
@@ -14,16 +14,49 @@ This repository is purpose-built for deploying to **Azure Kubernetes Service (AK
 
 ## What's Different from the Original?
 * **Clean Slate:** Severed the fork from Google. This is a standalone repository completely scrubbed of conflicting GCP Terraform files (`providers.tf`, `memorystore.tf`, etc.).
-* **Azure Pipeline:** Built a custom `.github/workflows/deploy.yml` that securely authenticates with Azure, provisions the cluster, and applies the Kubernetes manifests.
-* **Centralized State:** Configured a remote Terraform state using an Azure Storage Account so the automated GitHub workers have a consistent memory of the infrastructure.
-* **Controlled Triggers:** The deployment pipeline is intentionally strict. It only runs if a commit message explicitly contains the `[deploy-azure]` tag, preventing accidental spin-ups.
+* **CI/CD (EKS):** The GitHub Actions workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) provisions infrastructure with Terraform and deploys manifests to EKS.
+* **Remote State:** Terraform uses a remote state backend (S3/remote state) in CI so runs are consistent and shareable.
+* **Controlled Triggers:** The deployment workflow runs only on manual dispatch or if a commit message contains the `[deploy-aws]` tag to avoid accidental cluster provisioning.
 
-## The "Zero Risk" Deployment Cycle
-Because AKS clusters and Load Balancers are expensive to leave idling, this workflow is designed to be spun up, tested, and destroyed quickly. 
+## Deployment Overview
+This repository supports two common deployment flows: CI-driven EKS provisioning & deploys, and local development with Skaffold.
 
-1. **Deploy:** Push a commit to `main` with `[deploy-azure]`. GitHub Actions handles the rest.
-2. **Test:** Fetch the `EXTERNAL-IP` of the `frontend-external` service via `kubectl` to verify the live site.
-3. **Annihilate:** Once testing is quickly over, immediately run the teardown commands to wipe the Azure resource groups clean and prevent passive billing:
+CI deploy (EKS):
+
+1. Trigger: run the workflow manually via `workflow_dispatch` or push a commit to `main` that includes `[deploy-aws]` in the commit message. See [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) for details.
+2. The workflow runs `terraform apply` in `terraform/` to provision the cluster and related resources.
+3. After provisioning the cluster, the workflow updates kubeconfig and runs:
+
+    ```bash
+    kubectl apply -f release/kubernetes-manifests.yaml
+    ```
+
+4. The workflow waits for the `frontend-external` LoadBalancer and exposes the frontend URL in the workflow summary.
+
+Local development (Skaffold / kubectl):
+
+- Use Skaffold for an iterative development loop. Skaffold builds images locally and deploys manifests defined in [skaffold.yaml](skaffold.yaml):
+
    ```bash
-   az group delete --name microservices-demo-rg --yes --no-wait
-   az group delete --name tfstate-sea-rg --yes --no-wait
+   # Iterative development (rebuilds on change)
+   skaffold dev
+
+   # One-shot build-and-deploy
+   skaffold run
+   ```
+
+- Alternatively, to deploy the release bundle produced by CI locally or in any kubeconfig-aware context:
+
+   ```bash
+   kubectl apply -f release/kubernetes-manifests.yaml
+   ```
+
+Notes & teardown:
+
+- The repository includes a `terraform/` module used by CI to create infrastructure. To destroy resources created by Terraform, run from the `terraform/` directory:
+
+   ```bash
+   terraform destroy -auto-approve
+   ```
+
+- A Helm chart is available in [helm-chart/](helm-chart/README.md) for alternative packaging, but CI currently deploys the compiled manifests in `release/`.
