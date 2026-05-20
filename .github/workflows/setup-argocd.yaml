@@ -1,0 +1,54 @@
+name: setup argocd
+on:
+  workflow_call:
+    inputs:
+      kubeconfig-artifact:
+        description: "Name of the artifact containing the kubeconfig from a previous job"
+        required: true
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - 'argocd/**'
+      - '.github/workflows/setup-argocd.yaml'
+  pull_request:
+    paths:
+      - 'argocd/**'
+      - '.github/workflows/setup-argocd.yaml'
+jobs:
+  setup-argocd:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download kubeconfig from caller
+        if: github.event_name == 'workflow_call'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.kubeconfig-artifact }}
+          path: ~/.kube/
+
+      - name: Configure AWS Credentials
+        if: github.event_name != 'workflow_call'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        if: github.event_name != 'workflow_call'
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ secrets.AWS_REGION }}"
+
+      - name: setup argocd with helm
+        run: |
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+          helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace
+
+      - name: get argocd admin password
+        id: argocd
+        run: |
+          PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode)
+          echo "argocd_password=$PASSWORD" >> "$GITHUB_OUTPUT"
+          echo "ArgoCD Admin Password: $PASSWORD"
