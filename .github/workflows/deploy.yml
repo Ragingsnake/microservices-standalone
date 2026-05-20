@@ -78,6 +78,9 @@ jobs:
   setup-argocd:
     needs: provision
     uses: ./.github/workflows/setup-argocd.yaml
+    permissions:
+      id-token: write
+      contents: read
     with:
       kubeconfig-artifact: kubeconfig
     secrets: inherit
