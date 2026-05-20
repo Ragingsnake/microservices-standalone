@@ -33,7 +33,6 @@ jobs:
           path: ~/.kube/
 
       - name: Configure AWS Credentials
-        if: github.event_name != 'workflow_call'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
