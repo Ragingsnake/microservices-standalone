@@ -16,6 +16,9 @@ on:
     paths:
       - 'argocd/**'
       - '.github/workflows/setup-argocd.yaml'
+permissions:
+  contents: read
+  id-token: write
 jobs:
   setup-argocd:
     runs-on: ubuntu-24.04
