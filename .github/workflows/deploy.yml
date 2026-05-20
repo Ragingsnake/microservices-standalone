@@ -80,6 +80,7 @@ jobs:
     uses: ./.github/workflows/setup-argocd.yaml
     with:
       kubeconfig-artifact: kubeconfig
+    secrets: inherit
 
   # ------------------------------------------------------------------
   # 3. Deploy microservices to the cluster
