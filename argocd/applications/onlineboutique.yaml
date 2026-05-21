@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: onlineboutique
+  namespace: argocd
+spec:
+  project: onlineboutique
+  source:
+    repoURL: https://github.com/NVKQ2022/microservices-standalone.git
+    targetRevision: main
+    path: helm-chart
+    helm:
+      valueFiles:
+      # - argocd/helm-values/onlineboutique.yaml
+      - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+  ignoreDifferences:
+  - group: networking.istio.io
+    kind: VirtualService
+    jsonPointers:
+    - /spec/http
+  - group: networking.istio.io
+    kind: DestinationRule
+    jsonPointers:
+    - /spec/subsets

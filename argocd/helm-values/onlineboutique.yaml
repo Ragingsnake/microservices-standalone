@@ -1,0 +1,9 @@
+images:
+  repository: public.ecr.aws/n2m8n7v2/uit/devops-project
+  tag: latest
+
+productCatalogService:
+  create: true
+  useRollout: true
+  version: stable
+  imageOverride: public.ecr.aws/n2m8n7v2/uit/devops-project:productcatalogservice-latest

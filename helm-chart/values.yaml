@@ -17,9 +17,11 @@
 # Declare variables to be passed into your templates.
 
 images:
-  repository: us-central1-docker.pkg.dev/google-samples/microservices-demo
+  repository: public.ecr.aws/n2m8n7v2/uit/devops-project
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
+  # Override the full image reference per-service (e.g. for ECR usage)
+  # When set, takes precedence over images.repository / images.tag for that service.
 
 serviceAccounts:
   # Specifies whether service accounts should be created.
@@ -62,6 +64,8 @@ securityContext:
 adService:
   create: true
   name: adservice
+  # Overrides the full image for this service (e.g. public.ecr.aws/.../devops-project:adservice-latest)
+  imageOverride: ""
   resources:
     requests:
       cpu: 200m
@@ -73,6 +77,7 @@ adService:
 cartService:
   create: true
   name: cartservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 200m
@@ -84,6 +89,7 @@ cartService:
 checkoutService:
   create: true
   name: checkoutservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m
@@ -95,6 +101,7 @@ checkoutService:
 currencyService:
   create: true
   name: currencyservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m
@@ -106,6 +113,7 @@ currencyService:
 emailService:
   create: true
   name: emailservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m
@@ -117,6 +125,7 @@ emailService:
 frontend:
   create: true
   name: frontend
+  imageOverride: ""
   externalService: true
   cymbalBranding: false
   # One of: local, gcp, aws, azure, onprem, alibaba. When not set, defaults to "local" unless running in GKE, otherwise auto-sets to gcp.
@@ -142,6 +151,7 @@ frontend:
 loadGenerator:
   create: true
   name: loadgenerator
+  imageOverride: ""
   checkFrontendInitContainer: true
   resources:
     requests:
@@ -154,6 +164,7 @@ loadGenerator:
 paymentService:
   create: true
   name: paymentservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m
@@ -165,8 +176,25 @@ paymentService:
 productCatalogService:
   create: true
   name: productcatalogservice
+  imageOverride: ""
   # Specifies an extra latency to any request on productcatalogservice, by default no extra latency.
   extraLatency: ""
+  # Enables canary deployment via Argo Rollouts + Istio
+  useRollout: false
+  # Version label for the stable subset
+  version: stable
+  # Istio VirtualService name (used when useRollout: true)
+  virtualServiceName: productcatalogservice
+  # Istio DestinationRule name (used when useRollout: true)
+  destinationRuleName: productcatalogservice
+  # Canary rollout steps (weight %, pause seconds)
+  canarySteps:
+    - weight: 20
+      pause: 60
+    - weight: 50
+      pause: 120
+    - weight: 100
+      pause: 0
   resources:
     requests:
       cpu: 100m
@@ -178,6 +206,7 @@ productCatalogService:
 recommendationService:
   create: true
   name: recommendationservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m
@@ -189,6 +218,7 @@ recommendationService:
 shippingService:
   create: true
   name: shippingservice
+  imageOverride: ""
   resources:
     requests:
       cpu: 100m

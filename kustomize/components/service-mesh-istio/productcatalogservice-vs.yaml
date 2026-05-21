@@ -1,0 +1,18 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: productcatalogservice
+spec:
+  hosts:
+  - productcatalogservice
+  http:
+  - name: primary
+    route:
+    - destination:
+        host: productcatalogservice
+        subset: stable
+      weight: 100
+    - destination:
+        host: productcatalogservice
+        subset: canary
+      weight: 0

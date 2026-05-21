@@ -27,6 +27,7 @@ metadata:
   {{- end }}
 ---
 {{- end }}
+{{- if not .Values.productCatalogService.useRollout }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,6 +43,7 @@ spec:
     metadata:
       labels:
         app: {{ .Values.productCatalogService.name }}
+        version: {{ .Values.productCatalogService.version }}
     spec:
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.productCatalogService.name }}
@@ -69,7 +71,7 @@ spec:
               - ALL
           privileged: false
           readOnlyRootFilesystem: true
-        image: {{ .Values.images.repository }}/{{ .Values.productCatalogService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}
+        image: {{ if .Values.productCatalogService.imageOverride }}{{ .Values.productCatalogService.imageOverride }}{{ else }}{{ .Values.images.repository }}/{{ .Values.productCatalogService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}{{ end }}
         ports:
         - containerPort: 3550
         env:
@@ -99,6 +101,102 @@ spec:
             port: 3550
         resources:
           {{- toYaml .Values.productCatalogService.resources | nindent 10 }}
+{{- end }}
+{{- if .Values.productCatalogService.useRollout }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ .Values.productCatalogService.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.productCatalogService.name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.productCatalogService.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.productCatalogService.name }}
+        version: {{ .Values.productCatalogService.version }}
+    spec:
+      {{- if .Values.serviceAccounts.create }}
+      serviceAccountName: {{ .Values.productCatalogService.name }}
+      {{- else }}
+      serviceAccountName: default
+      {{- end }}
+      terminationGracePeriodSeconds: 5
+      {{- if .Values.securityContext.enable }}
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        {{- if .Values.seccompProfile.enable }}
+        seccompProfile:
+          type: {{ .Values.seccompProfile.type }}
+        {{- end }}
+      {{- end }}
+      containers:
+      - name: server
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+        image: {{ if .Values.productCatalogService.imageOverride }}{{ .Values.productCatalogService.imageOverride }}{{ else }}{{ .Values.images.repository }}/{{ .Values.productCatalogService.name }}:{{ .Values.images.tag | default .Chart.AppVersion }}{{ end }}
+        ports:
+        - containerPort: 3550
+        env:
+        - name: PORT
+          value: "3550"
+        {{- if .Values.opentelemetryCollector.create }}
+        - name: COLLECTOR_SERVICE_ADDR
+          value: "{{ .Values.opentelemetryCollector.name }}:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "{{ .Values.productCatalogService.name }}"
+        {{- end }}
+        {{- if .Values.googleCloudOperations.tracing }}
+        - name: ENABLE_TRACING
+          value: "1"
+        {{- end }}
+        {{- if not .Values.googleCloudOperations.profiler }}
+        - name: DISABLE_PROFILER
+          value: "1"
+        {{- end }}
+        - name: EXTRA_LATENCY
+          value: {{ .Values.productCatalogService.extraLatency }}
+        readinessProbe:
+          grpc:
+            port: 3550
+        livenessProbe:
+          grpc:
+            port: 3550
+        resources:
+          {{- toYaml .Values.productCatalogService.resources | nindent 10 }}
+  strategy:
+    canary:
+      trafficRouting:
+        istio:
+          virtualService:
+            name: {{ .Values.productCatalogService.virtualServiceName }}
+            routes:
+            - primary
+          destinationRule:
+            name: {{ .Values.productCatalogService.destinationRuleName }}
+            stableSubsetName: stable
+            canarySubsetName: canary
+      steps:
+      {{- range .Values.productCatalogService.canarySteps }}
+      - setWeight: {{ .weight }}
+      {{- if .pause }}
+      - pause:
+          duration: {{ .pause }}
+      {{- end }}
+      {{- end }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -115,6 +213,43 @@ spec:
   - name: grpc
     port: 3550
     targetPort: 3550
+{{- if .Values.productCatalogService.useRollout }}
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ .Values.productCatalogService.virtualServiceName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+  - {{ .Values.productCatalogService.name }}
+  http:
+  - name: primary
+    route:
+    - destination:
+        host: {{ .Values.productCatalogService.name }}
+        subset: stable
+      weight: 100
+    - destination:
+        host: {{ .Values.productCatalogService.name }}
+        subset: canary
+      weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: {{ .Values.productCatalogService.destinationRuleName }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  host: {{ .Values.productCatalogService.name }}
+  subsets:
+  - name: stable
+    labels:
+      version: stable
+  - name: canary
+    labels:
+      version: canary
+{{- end }}
 {{- if .Values.networkPolicies.create }}
 ---
 apiVersion: networking.k8s.io/v1
