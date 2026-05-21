@@ -30,6 +30,12 @@ jobs:
           helm repo add flagger https://flagger.app
           helm repo update
 
+      - name: Install Flagger CRDs
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm show crds flagger/flagger | kubectl apply -f -
+
       - name: Install Flagger
         shell: bash
         run: |
@@ -38,7 +44,8 @@ jobs:
             --namespace flagger \
             --create-namespace \
             --set meshProvider=istio \
-            --set crd.create=true \
+            --set crd.create=false \
+            --skip-crds \
             --set metricsServer=http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
 
       - name: Wait for Flagger controller
