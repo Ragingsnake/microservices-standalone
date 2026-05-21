@@ -159,7 +159,7 @@ jobs:
       run: |
         set -euo pipefail
 
-        wait_for_app() {
+        wait_for_app_ready() {
           local app_name="$1"
           for i in {1..60}; do
             SYNC_STATUS=$(kubectl -n argocd get application "$app_name" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)
@@ -179,8 +179,19 @@ jobs:
           exit 1
         }
 
-        wait_for_app microservices-bootstrap
-        wait_for_app onlineboutique-helm
+        wait_for_app_ready onlineboutique-helm
+
+        for i in {1..30}; do
+          if kubectl -n argocd get application microservices-bootstrap >/dev/null 2>&1; then
+            echo "microservices-bootstrap application exists"
+            break
+          fi
+
+          echo "Waiting for ArgoCD bootstrap application to appear... ($i/30)"
+          sleep 10
+        done
+
+        kubectl -n argocd get application microservices-bootstrap -o wide || true
 
     - name: Verify resources after deploy
       run: |
