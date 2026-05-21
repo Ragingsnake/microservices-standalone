@@ -27,11 +27,11 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Update kubeconfig for EKS
         if: github.event_name != 'workflow_call'
-        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ secrets.AWS_REGION }}"
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
 
       - name: setup argocd with helm
         run: |
@@ -97,5 +97,5 @@ jobs:
           echo "ArgoCD namespace: argocd" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD dashboard URL: ${{ steps.argocd-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Login user: admin" >> "$GITHUB_STEP_SUMMARY"
-          echo "Get password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode" >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD admin password: ${{ steps.argocd.outputs.argocd_password }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD apps are only tracked after you create Application/ApplicationSet manifests." >> "$GITHUB_STEP_SUMMARY"

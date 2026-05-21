@@ -18,10 +18,10 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION }}
 
       - name: Update kubeconfig for EKS
-        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ secrets.AWS_REGION }}"
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
 
       - name: Install kube-prometheus-stack
         run: |
@@ -90,5 +90,5 @@ jobs:
           echo "## Monitoring Result" >> "$GITHUB_STEP_SUMMARY"
           echo "Grafana URL: ${{ steps.grafana-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Grafana username: admin" >> "$GITHUB_STEP_SUMMARY"
-          echo "Grafana password secret: kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 --decode" >> "$GITHUB_STEP_SUMMARY"
+          echo "Grafana admin password: ${{ steps.grafana-password.outputs.grafana_password }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Prometheus is installed in the monitoring namespace and can be accessed with kubectl port-forward if needed." >> "$GITHUB_STEP_SUMMARY"

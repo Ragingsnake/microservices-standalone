@@ -16,7 +16,7 @@ jobs:
       contents: read
 
     env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
 
     steps:
@@ -86,21 +86,24 @@ jobs:
       run: |
         set -euo pipefail
 
-        STATE_LIST=$(terraform state list || true)
+        STATE_FILE=$(mktemp)
+        terraform state list > "$STATE_FILE" || true
 
-        if echo "$STATE_LIST" | grep -q '^aws_eks_node_group.default$'; then
+        if grep -Fxq 'aws_eks_node_group.default' "$STATE_FILE"; then
           echo "Destroying EKS node group first..."
           terraform destroy -auto-approve -target=aws_eks_node_group.default
         else
           echo "EKS node group resource not found in Terraform state."
         fi
 
-        if echo "$STATE_LIST" | grep -q '^aws_eks_cluster.eks$'; then
+        if grep -Fxq 'aws_eks_cluster.eks' "$STATE_FILE"; then
           echo "Destroying EKS cluster next..."
           terraform destroy -auto-approve -target=aws_eks_cluster.eks
         else
           echo "EKS cluster resource not found in Terraform state."
         fi
+
+        rm -f "$STATE_FILE"
 
     - name: Wait for ELB ENIs to drain from project VPC
       working-directory: ./terraform
@@ -108,14 +111,19 @@ jobs:
       run: |
         set -euo pipefail
 
-        if ! terraform state list | grep -q '^aws_vpc.main$'; then
+        STATE_FILE=$(mktemp)
+        terraform state list > "$STATE_FILE" || true
+
+        if ! grep -Fxq 'aws_vpc.main' "$STATE_FILE"; then
           echo "VPC resource not found in Terraform state. Skipping ELB ENI drain wait."
+          rm -f "$STATE_FILE"
           exit 0
         fi
 
         VPC_ID=$(terraform state show aws_vpc.main | awk '$1 == "id" && $2 == "=" { print $3; exit }')
         if [ -z "$VPC_ID" ]; then
           echo "Unable to determine VPC ID from Terraform state. Skipping ELB ENI drain wait."
+          rm -f "$STATE_FILE"
           exit 0
         fi
 
@@ -132,6 +140,8 @@ jobs:
           echo "Waiting for ELB ENI cleanup in $VPC_ID... ($i/30, remaining: $ENI_COUNT)"
           sleep 20
         done
+
+        rm -f "$STATE_FILE"
 
         echo "Timed out waiting for ELB ENI cleanup. Proceeding to full Terraform destroy with retries."
 
