@@ -85,6 +85,11 @@ jobs:
         run: |
           kubectl get applications.argoproj.io -A || true
 
+      - name: Bootstrap ArgoCD repo binding
+        run: |
+          kubectl apply -f argocd/root-app.yaml
+          kubectl get applications.argoproj.io -A
+
       - name: get argocd admin password
         id: argocd
         run: |
@@ -98,4 +103,5 @@ jobs:
           echo "ArgoCD dashboard URL: ${{ steps.argocd-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Login user: admin" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD admin password: ${{ steps.argocd.outputs.argocd_password }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "ArgoCD apps are only tracked after you create Application/ApplicationSet manifests." >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD root app: microservices-bootstrap" >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD now tracks the repo through argocd/root-app.yaml and argocd/apps/onlineboutique-helm-app.yaml." >> "$GITHUB_STEP_SUMMARY"

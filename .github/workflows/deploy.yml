@@ -133,11 +133,37 @@ jobs:
     - name: Update kubeconfig for EKS
       run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
-    - name: Deploy Microservices to EKS
-      run: kubectl apply -f release/kubernetes-manifests.yaml
+    - name: Wait for ArgoCD applications
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        wait_for_app() {
+          local app_name="$1"
+          for i in {1..60}; do
+            SYNC_STATUS=$(kubectl -n argocd get application "$app_name" -o jsonpath='{.status.sync.status}' 2>/dev/null || true)
+            HEALTH_STATUS=$(kubectl -n argocd get application "$app_name" -o jsonpath='{.status.health.status}' 2>/dev/null || true)
+
+            if [ "$SYNC_STATUS" = "Synced" ] && [ "$HEALTH_STATUS" = "Healthy" ]; then
+              echo "$app_name is Synced and Healthy"
+              return 0
+            fi
+
+            echo "Waiting for ArgoCD app $app_name... ($i/60) sync=$SYNC_STATUS health=$HEALTH_STATUS"
+            sleep 10
+          done
+
+          echo "Timed out waiting for ArgoCD app $app_name"
+          kubectl -n argocd get applications.argoproj.io
+          exit 1
+        }
+
+        wait_for_app microservices-bootstrap
+        wait_for_app onlineboutique-helm
 
     - name: Verify resources after deploy
       run: |
+        kubectl get applications.argoproj.io -A
         kubectl get ns
         kubectl get deploy,svc -A
 
