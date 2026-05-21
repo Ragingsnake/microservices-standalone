@@ -11,6 +11,10 @@ spec:
     name: frontend
   service:
     port: 80
+    gateways:
+      - onlineboutique/frontend-gateway
+    hosts:
+      - "*"
   progressDeadlineSeconds: 60
   analysis:
     interval: 1m
@@ -26,11 +30,3 @@ spec:
         thresholdRange:
           max: 500
         interval: 1m
-  trafficRouting:
-    istio:
-      virtualService:
-        name: frontend
-        gateways:
-          - onlineboutique/frontend-gateway
-        hosts:
-          - "*"
