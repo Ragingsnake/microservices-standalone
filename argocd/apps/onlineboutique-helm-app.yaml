@@ -16,6 +16,16 @@ spec:
           value: docker.io/ragingsnake
         - name: images.tag
           value: latest
+        - name: frontend.externalService
+          value: "false"
+        - name: frontend.virtualService.create
+          value: "false"
+        - name: frontend.virtualService.gateway.name
+          value: frontend-gateway
+        - name: frontend.virtualService.gateway.namespace
+          value: onlineboutique
+        - name: frontend.virtualService.hosts[0]
+          value: "*"
   destination:
     server: https://kubernetes.default.svc
     namespace: onlineboutique

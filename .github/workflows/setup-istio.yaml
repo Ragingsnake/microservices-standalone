@@ -1,0 +1,60 @@
+name: setup istio
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  setup-istio:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Install istioctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L https://istio.io/downloadIstio | sh -
+          sudo mv istio-*/bin/istioctl /usr/local/bin/istioctl
+          istioctl version --remote=false
+
+      - name: Install Istio demo profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          istioctl install --set profile=demo -y
+
+      - name: Wait for Istio control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n istio-system wait --for=condition=available deployment/istiod --timeout=15m
+          kubectl -n istio-system get pods,svc
+
+      - name: Label application namespace for injection
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl create namespace onlineboutique --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace onlineboutique istio-injection=enabled --overwrite
+          kubectl get namespace onlineboutique --show-labels
+
+      - name: Summarize Istio access
+        run: |
+          echo "## Istio Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "Istio control plane installed with demo profile." >> "$GITHUB_STEP_SUMMARY"
+          echo "Namespace labeled for injection: onlineboutique" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check: kubectl get pods -n istio-system; kubectl get ns onlineboutique --show-labels; kubectl get pods -n onlineboutique" >> "$GITHUB_STEP_SUMMARY"

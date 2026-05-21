@@ -1,0 +1,75 @@
+name: inspect cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: "Namespace to inspect"
+        required: false
+        default: "onlineboutique"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Inspect cluster resources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_NS="${{ inputs.namespace }}"
+
+          echo "=== Cluster namespaces ==="
+          kubectl get ns
+
+          echo "=== ArgoCD applications ==="
+          kubectl get applications.argoproj.io -A || true
+
+          echo "=== Istio resources ==="
+          kubectl get gateway,virtualservice,destinationrule -A || true
+
+          echo "=== Canary resources ==="
+          kubectl get canary -A || true
+
+          echo "=== Istio ingress gateway ==="
+          kubectl -n istio-system get svc istio-ingressgateway -o wide || true
+
+          echo "=== App namespace: $APP_NS ==="
+          kubectl -n "$APP_NS" get deploy,pod,svc || true
+          kubectl -n "$APP_NS" get gateway,virtualservice,canary || true
+          kubectl -n "$APP_NS" describe canary frontend || true
+
+          echo "=== Monitoring namespace ==="
+          kubectl -n monitoring get deploy,pod,svc || true
+
+          echo "=== Frontend public endpoint ==="
+          HOSTNAME=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+          IP=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          if [ -n "$HOSTNAME" ]; then
+            echo "http://$HOSTNAME"
+          elif [ -n "$IP" ]; then
+            echo "http://$IP"
+          else
+            echo "Istio ingressgateway does not have a public endpoint yet."
+          fi
+
+      - name: Summarize inspection results
+        run: |
+          echo "## Cluster Inspection" >> "$GITHUB_STEP_SUMMARY"
+          echo "Namespace inspected: ${{ inputs.namespace }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check ArgoCD applications, Istio gateway resources, and the frontend canary from the command output above." >> "$GITHUB_STEP_SUMMARY"

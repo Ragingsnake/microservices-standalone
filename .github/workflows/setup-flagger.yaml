@@ -1,0 +1,56 @@
+name: setup flagger
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  setup-flagger:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Add Flagger Helm repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm repo add flagger https://flagger.app
+          helm repo update
+
+      - name: Install Flagger
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm upgrade --install flagger flagger/flagger \
+            --namespace flagger \
+            --create-namespace \
+            --set meshProvider=istio \
+            --set crd.create=true \
+            --set metricsServer=http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+
+      - name: Wait for Flagger controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl -n flagger wait --for=condition=available deployment/flagger --timeout=15m
+          kubectl -n flagger get pods,svc
+
+      - name: Summarize Flagger access
+        run: |
+          echo "## Flagger Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "Flagger controller installed with Istio as the mesh provider." >> "$GITHUB_STEP_SUMMARY"
+          echo "Prometheus source: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check: kubectl get canary -A; kubectl describe canary frontend -n onlineboutique" >> "$GITHUB_STEP_SUMMARY"

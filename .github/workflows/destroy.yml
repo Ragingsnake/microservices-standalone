@@ -29,7 +29,7 @@ jobs:
         fi
 
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
@@ -61,18 +61,23 @@ jobs:
 
         aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
-        # Delete app resources first so cloud load balancer dependencies are released before VPC teardown.
+        # Remove all namespace-scoped resources that can create AWS LoadBalancers/ENIs.
         kubectl delete -f release/kubernetes-manifests.yaml --ignore-not-found=true
+        kubectl delete namespace onlineboutique monitoring argocd flagger istio-system --ignore-not-found=true --wait=false
 
-        for i in {1..30}; do
-          FRONTEND_EXISTS=$(kubectl get svc frontend-external -o name 2>/dev/null)
-          if [ -z "$FRONTEND_EXISTS" ]; then
-            echo "frontend-external service deleted."
+        for i in {1..60}; do
+          LB_SERVICES=$(kubectl get svc -A --field-selector spec.type=LoadBalancer -o name 2>/dev/null || true)
+          if [ -z "$LB_SERVICES" ]; then
+            echo "No LoadBalancer services remain in the cluster."
             break
           fi
-          echo "Waiting for frontend-external service deletion... ($i/30)"
+
+          echo "Waiting for LoadBalancer services to delete... ($i/60)"
+          echo "$LB_SERVICES"
           sleep 10
         done
+
+        kubectl get namespace onlineboutique monitoring argocd flagger istio-system 2>/dev/null || true
 
     - name: Terraform Init (S3 Backend)
       working-directory: ./terraform
@@ -128,6 +133,8 @@ jobs:
           rm -f "$STATE_FILE"
           exit 0
         fi
+
+        echo "Monitoring ELB ENIs in VPC $VPC_ID"
 
         for i in {1..30}; do
           ENI_COUNT=$(aws ec2 describe-network-interfaces \

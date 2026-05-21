@@ -7,6 +7,8 @@ How it works:
 1. `argocd/root-app.yaml` is the root Application.
 2. The root Application watches `argocd/apps/` in this repo.
 3. `argocd/apps/onlineboutique-helm-app.yaml` tells ArgoCD to deploy the Helm chart in `helm-chart/`.
+4. `argocd/apps/frontend-canary.yaml` lets Flagger manage the frontend canary rollout through Istio.
+5. `argocd/apps/frontend-gateway.yaml` exposes the public frontend through the Istio ingress gateway.
 
 What ArgoCD does:
 
@@ -19,3 +21,5 @@ How to check it is working:
 - Open the ArgoCD dashboard from the workflow output.
 - Confirm the root app `microservices-bootstrap` is `Healthy` and `Synced`.
 - Confirm the child app `onlineboutique-helm` is also `Healthy` and `Synced`.
+- Confirm the `frontend` Canary exists in `onlineboutique` and is progressing or healthy.
+- Confirm the Istio `frontend-gateway` exists and the ingressgateway service has a public endpoint.

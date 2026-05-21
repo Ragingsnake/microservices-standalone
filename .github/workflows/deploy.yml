@@ -22,6 +22,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+      APP_NAMESPACE: onlineboutique
 
     steps:
     - name: Checkout Code
@@ -90,7 +91,9 @@ jobs:
         path: ~/.kube/config
 
   setup-argocd:
-    needs: provision
+    needs:
+      - setup-istio
+      - setup-flagger
     uses: ./.github/workflows/setup-argocd.yaml
     permissions:
       id-token: write
@@ -99,9 +102,27 @@ jobs:
       kubeconfig-artifact: kubeconfig
     secrets: inherit
 
+  setup-istio:
+    needs: provision
+    uses: ./.github/workflows/setup-istio.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+
   setup-monitoring:
     needs: provision
     uses: ./.github/workflows/setup-monitoring.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+
+  setup-flagger:
+    needs:
+      - setup-istio
+      - setup-monitoring
+    uses: ./.github/workflows/setup-flagger.yaml
     permissions:
       id-token: write
       contents: read
@@ -167,7 +188,7 @@ jobs:
         kubectl get ns
         kubectl get deploy,svc -A
 
-    - name: Wait for frontend endpoint
+    - name: Wait for Istio frontend endpoint
       id: frontend
       shell: bash
       run: |
@@ -175,8 +196,8 @@ jobs:
 
         URL=""
         for i in {1..60}; do
-          HOSTNAME=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-          IP=$(kubectl get svc frontend-external -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          HOSTNAME=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+          IP=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
 
           if [ -n "$HOSTNAME" ]; then
             URL="http://$HOSTNAME"
@@ -188,13 +209,13 @@ jobs:
             break
           fi
 
-          echo "Waiting for frontend LoadBalancer endpoint... ($i/60)"
+          echo "Waiting for Istio ingressgateway endpoint... ($i/60)"
           sleep 10
         done
 
         if [ -z "$URL" ]; then
-          echo "Frontend endpoint not ready yet. Check service events:"
-          kubectl describe svc frontend-external || true
+          echo "Istio frontend endpoint not ready yet. Check service events:"
+          kubectl -n istio-system describe svc istio-ingressgateway || true
           exit 1
         fi
 
