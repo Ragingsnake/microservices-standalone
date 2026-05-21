@@ -12,10 +12,7 @@ on:
         default: "Manual deployment"
 
 jobs:
-  # ------------------------------------------------------------------
-  # 1. Provision infrastructure with Terraform
-  # ------------------------------------------------------------------
-  provision:
+  provision-and-deploy:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-aws]')
     runs-on: ubuntu-latest
     permissions:
@@ -29,6 +26,12 @@ jobs:
     steps:
     - name: Checkout Code
       uses: actions/checkout@v3
+
+    # Azure Login (legacy, retained for fallback)
+    # - name: Azure Login
+    #   uses: azure/login@v1
+    #   with:
+    #     creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
@@ -54,6 +57,16 @@ jobs:
           -backend-config="key=${{ secrets.TF_STATE_KEY }}" \
           -backend-config="region=${{ env.AWS_REGION }}"
 
+    # Terraform Init (Azure backend legacy, retained for fallback)
+    # - name: Terraform Init
+    #   working-directory: ./terraform
+    #   run: |
+    #     terraform init \
+    #       -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+    #       -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE }}" \
+    #       -backend-config="container_name=tfstate" \
+    #       -backend-config="key=terraform.tfstate"
+
     - name: Terraform Apply
       working-directory: ./terraform
       run: terraform apply -auto-approve
@@ -66,55 +79,9 @@ jobs:
         kubectl config current-context
         kubectl get nodes -o wide
 
-    - name: Save kubeconfig for downstream jobs
-      uses: actions/upload-artifact@v4
-      with:
-        name: kubeconfig
-        path: ~/.kube/config
-
-  # ------------------------------------------------------------------
-  # 2. Install / configure ArgoCD (reusable workflow)
-  # ------------------------------------------------------------------
-  setup-argocd:
-    needs: provision
-    uses: ./.github/workflows/setup-argocd.yaml
-    permissions:
-      id-token: write
-      contents: read
-    with:
-      kubeconfig-artifact: kubeconfig
-    secrets: inherit
-
-  # ------------------------------------------------------------------
-  # 3. Deploy microservices to the cluster
-  # ------------------------------------------------------------------
-  deploy-microservices:
-    needs: setup-argocd
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      actions: read
-      contents: read
-
-    env:
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
-
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v3
-
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Download kubeconfig from provision step
-      uses: actions/download-artifact@v4
-      with:
-        name: kubeconfig
-        path: ~/.kube/
+    # Get AKS Credentials (legacy, retained for fallback)
+    # - name: Get AKS Credentials
+    #   run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
 
     - name: Deploy Microservices to EKS
       run: kubectl apply -f release/kubernetes-manifests.yaml

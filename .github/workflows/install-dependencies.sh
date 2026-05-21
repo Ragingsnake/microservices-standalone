@@ -31,11 +31,11 @@ sudo chown root:root /etc/apt/sources.list.d/microsoft-prod.list
 sudo apt-get install -y apt-transport-https && \
 sudo apt-get update && \
 sudo apt-get install -y dotnet-sdk-10.0
-echo "✅ dotnet installed"
+echo "dotnet installed"
 
 # install kubectl
 sudo apt-get install -yqq kubectl git
-echo "✅ kubectl installed"
+echo "kubectl installed"
 
 # install go
 wget https://golang.org/dl/go1.25.linux-amd64.tar.gz
@@ -43,7 +43,7 @@ sudo tar -C /usr/local -xzf go1.25.linux-amd64.tar.gz
 echo 'export GOPATH=$HOME/go' >> ~/.profile
 echo 'export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin' >> ~/.profile
 source ~/.profile
-echo "✅ golang installed"
+echo "golang installed"
 
 # install build-essential (gcc, used for go test)
 sudo apt install -y build-essential
@@ -59,7 +59,7 @@ sudo apt install -y build-essential
 curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64 && \
 chmod +x skaffold && \
 sudo mv skaffold /usr/local/bin
-echo "✅ skaffold installed"
+echo "skaffold installed"
 
 # install docker
 sudo apt install -yqq apt-transport-https ca-certificates curl gnupg2 software-properties-common && \
@@ -68,7 +68,7 @@ sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debi
 sudo apt-get update && \
 sudo apt-get install -yqq docker-ce && \
 sudo usermod -aG docker ${USER}
-echo "✅ docker installed, rebooting..."
+echo "docker installed, rebooting..."
 
 # reboot for docker setup
 sudo reboot

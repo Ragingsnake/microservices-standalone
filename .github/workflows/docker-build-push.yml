@@ -1,0 +1,189 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - '.github/workflows/docker-build-push.yml'
+  workflow_dispatch:
+    inputs:
+      build_all_images:
+        description: "Build every image instead of only changed ones"
+        required: false
+        default: "true"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.matrix.outputs.should_build }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute changed services
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          declare -A context_map=(
+            [adservice]="src/adservice"
+            [cartservice]="src/cartservice/src"
+            [checkoutservice]="src/checkoutservice"
+            [currencyservice]="src/currencyservice"
+            [emailservice]="src/emailservice"
+            [frontend]="src/frontend"
+            [loadgenerator]="src/loadgenerator"
+            [paymentservice]="src/paymentservice"
+            [productcatalogservice]="src/productcatalogservice"
+            [recommendationservice]="src/recommendationservice"
+            [shippingservice]="src/shippingservice"
+            [shoppingassistantservice]="src/shoppingassistantservice"
+          )
+
+          declare -A dockerfile_map=(
+            [cartservice]="src/cartservice/src/Dockerfile"
+          )
+
+          all_services=(
+            adservice
+            cartservice
+            checkoutservice
+            currencyservice
+            emailservice
+            frontend
+            loadgenerator
+            paymentservice
+            productcatalogservice
+            recommendationservice
+            shippingservice
+            shoppingassistantservice
+          )
+
+          services=()
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.build_all_images }}" != "false" ]; then
+            services=("${all_services[@]}")
+          else
+            before='${{ github.event.before }}'
+            after='${{ github.sha }}'
+
+            if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              services=("${all_services[@]}")
+            else
+              mapfile -t changed_files < <(git diff --name-only "$before" "$after" -- src)
+
+              for file in "${changed_files[@]}"; do
+                case "$file" in
+                  src/adservice/*) services+=(adservice) ;;
+                  src/cartservice/*) services+=(cartservice) ;;
+                  src/checkoutservice/*) services+=(checkoutservice) ;;
+                  src/currencyservice/*) services+=(currencyservice) ;;
+                  src/emailservice/*) services+=(emailservice) ;;
+                  src/frontend/*) services+=(frontend) ;;
+                  src/loadgenerator/*) services+=(loadgenerator) ;;
+                  src/paymentservice/*) services+=(paymentservice) ;;
+                  src/productcatalogservice/*) services+=(productcatalogservice) ;;
+                  src/recommendationservice/*) services+=(recommendationservice) ;;
+                  src/shippingservice/*) services+=(shippingservice) ;;
+                  src/shoppingassistantservice/*) services+=(shoppingassistantservice) ;;
+                esac
+              done
+            fi
+          fi
+
+          declare -A seen=()
+          unique_services=()
+          for service in "${services[@]}"; do
+            if [ -z "${seen[$service]+x}" ]; then
+              seen[$service]=1
+              unique_services+=("$service")
+            fi
+          done
+
+          if [ "${#unique_services[@]}" -eq 0 ]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          matrix='{"include":['
+          separator=''
+          for service in "${unique_services[@]}"; do
+            context="${context_map[$service]}"
+            dockerfile="${dockerfile_map[$service]:-$context/Dockerfile}"
+            matrix+="${separator}{\"service\":\"${service}\",\"context\":\"${context}\",\"dockerfile\":\"${dockerfile}\"}"
+            separator=','
+          done
+          matrix+=']}'
+
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    env:
+      DOCKERHUB_NAMESPACE: ${{ github.repository_owner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image="docker.io/${DOCKERHUB_NAMESPACE}/${{ matrix.service }}"
+          tags="${image}:${GITHUB_SHA}"
+
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            tags="${tags}"$'\n'"${image}:latest"
+          fi
+
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          printf '%b\n' "$tags" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "Built and pushed ${{ matrix.service }} to docker.io/${DOCKERHUB_NAMESPACE}/${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "First successful push creates the Docker Hub repository if it does not already exist." >> "$GITHUB_STEP_SUMMARY"

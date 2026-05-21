@@ -6,16 +6,7 @@ on:
         description: "Name of the artifact containing the kubeconfig from a previous job"
         required: true
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - 'argocd/**'
-      - '.github/workflows/setup-argocd.yaml'
-  pull_request:
-    paths:
-      - 'argocd/**'
-      - '.github/workflows/setup-argocd.yaml'
+  workflow_dispatch: {}
 permissions:
   contents: read
   id-token: write
@@ -46,7 +37,53 @@ jobs:
         run: |
           helm repo add argo https://argoproj.github.io/argo-helm
           helm repo update
-          helm upgrade --install argocd argo/argo-cd --namespace argocd --create-namespace
+          helm upgrade --install argocd argo/argo-cd \
+            --namespace argocd --create-namespace \
+            --set server.service.type=LoadBalancer
+
+      - name: wait for argocd to become ready
+        run: |
+          kubectl -n argocd wait --for=condition=available deployment --all --timeout=10m
+          kubectl -n argocd get pods
+          kubectl -n argocd get svc
+
+      - name: wait for argocd dashboard endpoint
+        id: argocd-url
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL=""
+          for i in {1..60}; do
+            HOSTNAME=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
+            if [ -n "$HOSTNAME" ]; then
+              URL="https://$HOSTNAME"
+              break
+            fi
+
+            if [ -n "$IP" ]; then
+              URL="https://$IP"
+              break
+            fi
+
+            echo "Waiting for ArgoCD LoadBalancer endpoint... ($i/60)"
+            sleep 10
+          done
+
+          if [ -z "$URL" ]; then
+            echo "ArgoCD dashboard endpoint not ready yet. Check service events:"
+            kubectl -n argocd describe svc argocd-server || true
+            exit 1
+          fi
+
+          echo "dashboard_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "ArgoCD dashboard URL: $URL"
+
+      - name: verify argocd applications api
+        run: |
+          kubectl get applications.argoproj.io -A || true
 
       - name: get argocd admin password
         id: argocd
@@ -54,3 +91,11 @@ jobs:
           PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode)
           echo "argocd_password=$PASSWORD" >> "$GITHUB_OUTPUT"
           echo "ArgoCD Admin Password: $PASSWORD"
+
+      - name: summarize argocd access
+        run: |
+          echo "ArgoCD namespace: argocd" >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD dashboard URL: ${{ steps.argocd-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Login user: admin" >> "$GITHUB_STEP_SUMMARY"
+          echo "Get password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 --decode" >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD apps are only tracked after you create Application/ApplicationSet manifests." >> "$GITHUB_STEP_SUMMARY"
