@@ -19,7 +19,7 @@
 images:
   repository: public.ecr.aws/n2m8n7v2/uit/devops-project
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "latest"
   # Override the full image reference per-service (e.g. for ECR usage)
   # When set, takes precedence over images.repository / images.tag for that service.
 
