@@ -10,12 +10,6 @@ variable "cluster_name" {
   default     = "microservices-eks"
 }
 
-variable "eks_admin_role_name" {
-  description = "IAM role name used for EKS admin access"
-  type        = string
-  default     = "microservices-eks-admin-role"
-}
-
 variable "common_tags" {
   description = "Common tags applied to resources"
   type        = map(string)
