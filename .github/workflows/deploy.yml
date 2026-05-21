@@ -12,7 +12,7 @@ on:
         default: "Manual deployment"
 
 jobs:
-  provision-and-deploy:
+  provision:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[deploy-aws]')
     runs-on: ubuntu-latest
     permissions:
@@ -82,6 +82,56 @@ jobs:
     # Get AKS Credentials (legacy, retained for fallback)
     # - name: Get AKS Credentials
     #   run: az aks get-credentials --resource-group microservices-demo-rg --name microservices-aks --overwrite-existing
+
+    - name: Save kubeconfig for downstream jobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: kubeconfig
+        path: ~/.kube/config
+
+  setup-argocd:
+    needs: provision
+    uses: ./.github/workflows/setup-argocd.yaml
+    permissions:
+      id-token: write
+      contents: read
+    with:
+      kubeconfig-artifact: kubeconfig
+    secrets: inherit
+
+  setup-monitoring:
+    needs: provision
+    uses: ./.github/workflows/setup-monitoring.yaml
+    permissions:
+      id-token: write
+      contents: read
+    secrets: inherit
+
+  deploy-microservices:
+    needs:
+      - setup-argocd
+      - setup-monitoring
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      EKS_CLUSTER_NAME: ${{ secrets.EKS_CLUSTER_NAME }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Update kubeconfig for EKS
+      run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
 
     - name: Deploy Microservices to EKS
       run: kubectl apply -f release/kubernetes-manifests.yaml

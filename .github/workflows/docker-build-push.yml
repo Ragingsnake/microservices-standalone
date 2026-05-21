@@ -141,7 +141,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     env:
-      DOCKERHUB_NAMESPACE: ${{ github.repository_owner }}
+      DOCKERHUB_USERNAME: ragingsnake
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -149,7 +149,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ github.repository_owner }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set up Docker Buildx
@@ -161,7 +161,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          image="docker.io/${DOCKERHUB_NAMESPACE}/${{ matrix.service }}"
+          image="docker.io/${DOCKERHUB_USERNAME}/${{ matrix.service }}"
           tags="${image}:${GITHUB_SHA}"
 
           if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
@@ -185,5 +185,5 @@ jobs:
 
       - name: Summary
         run: |
-          echo "Built and pushed ${{ matrix.service }} to docker.io/${DOCKERHUB_NAMESPACE}/${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Built and pushed ${{ matrix.service }} to docker.io/${DOCKERHUB_USERNAME}/${{ matrix.service }}" >> "$GITHUB_STEP_SUMMARY"
           echo "First successful push creates the Docker Hub repository if it does not already exist." >> "$GITHUB_STEP_SUMMARY"

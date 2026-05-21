@@ -1,0 +1,94 @@
+name: setup monitoring
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  setup-monitoring:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ secrets.AWS_REGION }}"
+
+      - name: Install kube-prometheus-stack
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+            --namespace monitoring --create-namespace \
+            --set grafana.service.type=LoadBalancer \
+            --set grafana.persistence.enabled=false \
+            --set prometheus.prometheusSpec.retention=6h
+
+      - name: Wait for monitoring stack to become ready
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl -n monitoring wait --for=condition=available deployment --all --timeout=15m
+          kubectl -n monitoring get pods
+          kubectl -n monitoring get svc
+
+      - name: Wait for Grafana dashboard endpoint
+        id: grafana-url
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL=""
+          for i in {1..60}; do
+            HOSTNAME=$(kubectl -n monitoring get svc monitoring-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            IP=$(kubectl -n monitoring get svc monitoring-grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
+            if [ -n "$HOSTNAME" ]; then
+              URL="https://$HOSTNAME"
+              break
+            fi
+
+            if [ -n "$IP" ]; then
+              URL="https://$IP"
+              break
+            fi
+
+            echo "Waiting for Grafana LoadBalancer endpoint... ($i/60)"
+            sleep 10
+          done
+
+          if [ -z "$URL" ]; then
+            echo "Grafana dashboard endpoint not ready yet. Check service events:"
+            kubectl -n monitoring describe svc monitoring-grafana || true
+            exit 1
+          fi
+
+          echo "dashboard_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Grafana dashboard URL: $URL"
+
+      - name: Get Grafana admin password
+        id: grafana-password
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PASSWORD=$(kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 --decode)
+          echo "grafana_password=$PASSWORD" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize monitoring access
+        run: |
+          echo "## Monitoring Result" >> "$GITHUB_STEP_SUMMARY"
+          echo "Grafana URL: ${{ steps.grafana-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Grafana username: admin" >> "$GITHUB_STEP_SUMMARY"
+          echo "Grafana password secret: kubectl -n monitoring get secret monitoring-grafana -o jsonpath='{.data.admin-password}' | base64 --decode" >> "$GITHUB_STEP_SUMMARY"
+          echo "Prometheus is installed in the monitoring namespace and can be accessed with kubectl port-forward if needed." >> "$GITHUB_STEP_SUMMARY"
