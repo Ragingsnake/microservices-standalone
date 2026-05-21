@@ -32,10 +32,18 @@ jobs:
           istioctl version --remote=false
 
       - name: Install Istio demo profile
+        id: istio-install
         shell: bash
         run: |
           set -euo pipefail
+          if kubectl -n istio-system get deployment istiod >/dev/null 2>&1; then
+            echo "istio already installed; skipping istioctl install"
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           istioctl install --set profile=demo -y
+          echo "installed=true" >> "$GITHUB_OUTPUT"
 
       - name: Wait for Istio control plane
         shell: bash
@@ -57,4 +65,5 @@ jobs:
           echo "## Istio Result" >> "$GITHUB_STEP_SUMMARY"
           echo "Istio control plane installed with demo profile." >> "$GITHUB_STEP_SUMMARY"
           echo "Namespace labeled for injection: onlineboutique" >> "$GITHUB_STEP_SUMMARY"
+          echo "Istio install ran: ${{ steps.istio-install.outputs.installed }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Check: kubectl get pods -n istio-system; kubectl get ns onlineboutique --show-labels; kubectl get pods -n onlineboutique" >> "$GITHUB_STEP_SUMMARY"

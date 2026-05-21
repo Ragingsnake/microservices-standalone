@@ -11,6 +11,7 @@ spec:
     name: frontend
   service:
     port: 80
+    targetPort: 8080
     gateways:
       - onlineboutique/frontend-gateway
     hosts:

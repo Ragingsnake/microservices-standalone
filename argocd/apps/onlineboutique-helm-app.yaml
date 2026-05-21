@@ -29,6 +29,14 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: onlineboutique
+  ignoreDifferences:
+    - group: ""
+      kind: Service
+      name: frontend
+      namespace: onlineboutique
+      jsonPointers:
+        - /spec/selector
+        - /spec/ports/0/targetPort
   syncPolicy:
     automated:
       prune: true

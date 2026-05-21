@@ -24,7 +24,16 @@ jobs:
         run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
 
       - name: Install kube-prometheus-stack
+        id: monitoring-install
+        shell: bash
         run: |
+          set -euo pipefail
+          if kubectl -n monitoring get deployment monitoring-kube-prometheus-operator >/dev/null 2>&1; then
+            echo "monitoring already installed; skipping helm upgrade"
+            echo "installed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
           helm repo update
           helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
@@ -32,6 +41,7 @@ jobs:
             --set grafana.service.type=LoadBalancer \
             --set grafana.persistence.enabled=false \
             --set prometheus.prometheusSpec.retention=6h
+          echo "installed=true" >> "$GITHUB_OUTPUT"
 
       - name: Wait for monitoring stack to become ready
         shell: bash
@@ -91,4 +101,5 @@ jobs:
           echo "Grafana URL: ${{ steps.grafana-url.outputs.dashboard_url }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Grafana username: admin" >> "$GITHUB_STEP_SUMMARY"
           echo "Grafana admin password: ${{ steps.grafana-password.outputs.grafana_password }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Monitoring install ran: ${{ steps.monitoring-install.outputs.installed }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Prometheus is installed in the monitoring namespace and can be accessed with kubectl port-forward if needed." >> "$GITHUB_STEP_SUMMARY"

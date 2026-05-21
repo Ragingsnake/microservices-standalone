@@ -30,13 +30,26 @@ jobs:
           helm repo add flagger https://flagger.app
           helm repo update
 
+      - name: Check whether Flagger already exists
+        id: flagger-exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if kubectl -n flagger get deployment flagger >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install Flagger CRDs
+        if: steps.flagger-exists.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
           helm show crds flagger/flagger | kubectl apply -f -
 
       - name: Install Flagger
+        if: steps.flagger-exists.outputs.exists != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -60,4 +73,5 @@ jobs:
           echo "## Flagger Result" >> "$GITHUB_STEP_SUMMARY"
           echo "Flagger controller installed with Istio as the mesh provider." >> "$GITHUB_STEP_SUMMARY"
           echo "Prometheus source: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090" >> "$GITHUB_STEP_SUMMARY"
+          echo "Flagger install skipped: ${{ steps.flagger-exists.outputs.exists }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Check: kubectl get canary -A; kubectl describe canary frontend -n onlineboutique" >> "$GITHUB_STEP_SUMMARY"

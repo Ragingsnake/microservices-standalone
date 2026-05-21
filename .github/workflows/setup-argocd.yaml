@@ -33,7 +33,19 @@ jobs:
         if: github.event_name != 'workflow_call'
         run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
 
+      - name: Check whether ArgoCD already exists
+        id: argocd-exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if kubectl -n argocd get deployment argocd-server >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: setup argocd with helm
+        if: steps.argocd-exists.outputs.exists != 'true'
         run: |
           helm repo add argo https://argoproj.github.io/argo-helm
           helm repo update
@@ -104,4 +116,5 @@ jobs:
           echo "Login user: admin" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD admin password: ${{ steps.argocd.outputs.argocd_password }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD root app: microservices-bootstrap" >> "$GITHUB_STEP_SUMMARY"
+          echo "ArgoCD install skipped: ${{ steps.argocd-exists.outputs.exists }}" >> "$GITHUB_STEP_SUMMARY"
           echo "ArgoCD now tracks the repo through argocd/root-app.yaml and argocd/apps/onlineboutique-helm-app.yaml." >> "$GITHUB_STEP_SUMMARY"

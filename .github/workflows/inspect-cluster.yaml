@@ -46,6 +46,9 @@ jobs:
           echo "=== Canary resources ==="
           kubectl get canary -A || true
 
+          echo "=== Flagger namespace ==="
+          kubectl -n flagger get deploy,pod,svc || true
+
           echo "=== Istio ingress gateway ==="
           kubectl -n istio-system get svc istio-ingressgateway -o wide || true
 
@@ -53,6 +56,9 @@ jobs:
           kubectl -n "$APP_NS" get deploy,pod,svc || true
           kubectl -n "$APP_NS" get gateway,virtualservice,canary || true
           kubectl -n "$APP_NS" describe canary frontend || true
+          kubectl -n "$APP_NS" get svc frontend -o yaml || true
+          kubectl -n "$APP_NS" get svc frontend-primary -o yaml || true
+          kubectl -n "$APP_NS" get svc frontend-canary -o yaml || true
 
           echo "=== Monitoring namespace ==="
           kubectl -n monitoring get deploy,pod,svc || true
