@@ -40,6 +40,19 @@ jobs:
           echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
           kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
 
+          echo "=== PodMonitor: istio-ingressgateway (istio-system) ==="
+          kubectl -n istio-system get podmonitor istio-ingressgateway -o yaml || echo "PodMonitor istio-ingressgateway not found in istio-system"
+
+          echo "=== istio-ingressgateway pod ports ==="
+          kubectl -n istio-system get pods -l istio=ingressgateway -o json \
+            | jq -c '.items[]? | {
+                pod: .metadata.name,
+                labels: .metadata.labels,
+                ports: [
+                  .spec.containers[]?.ports[]? | {name, containerPort, protocol}
+                ]
+              }'
+
           echo "=== Prometheus readiness and API checks ==="
           if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
             kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
@@ -64,7 +77,7 @@ jobs:
             INGRESS_TARGET=$(curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '
                   .data.activeTargets[]?
-                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("istio-ingressgateway"; "i")))
+                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("(serviceMonitor|podMonitor)/istio-system/istio-ingressgateway"; "i")))
                   | {
                       service: (.discoveredLabels.__meta_kubernetes_service_name // .labels.job // "unknown"),
                       endpoint: (.discoveredLabels.__meta_kubernetes_endpoints_name // "unknown"),
@@ -84,7 +97,7 @@ jobs:
             DROPPED_INGRESS_TARGET=$(curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
               | jq -c '
                   .data.droppedTargets[]?
-                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("istio-ingressgateway"; "i")))
+                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("(serviceMonitor|podMonitor)/istio-system/istio-ingressgateway"; "i")))
                   | {
                       service: (.discoveredLabels.__meta_kubernetes_service_name // .labels.job // "unknown"),
                       endpoint: (.discoveredLabels.__meta_kubernetes_endpoints_name // "unknown"),
