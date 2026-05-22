@@ -71,11 +71,34 @@ jobs:
             echo "Found Prometheus service, port-forwarding to localhost:9090"
             kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
             PF_PID=$!
-            # give port-forward a moment
-            sleep 3
+
+            PROM_READY=false
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1; then
+                PROM_READY=true
+                break
+              fi
+              echo "Waiting for Prometheus port-forward to become ready... ($i/30)"
+              sleep 2
+            done
+
+            if [ "$PROM_READY" != "true" ]; then
+              echo "Prometheus port-forward did not become ready in time. Port-forward log:"
+              cat /tmp/prom-pf.log || true
+            fi
 
             echo "--- Prometheus /api/v1/targets ---"
             curl -sS --fail http://localhost:9090/api/v1/targets || echo "Failed to query Prometheus targets"
+
+            echo "--- Prometheus Istio/Envoy targets ---"
+            curl -sS --fail http://localhost:9090/api/v1/targets \
+              | jq '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i"))' \
+              || echo "Failed to filter Istio/Envoy targets"
+
+            echo "--- Prometheus metric names matching istio|envoy ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/label/__name__/values' \
+              | jq '.data[]? | select(test("istio|envoy"; "i"))' \
+              || echo "Failed to query metric names"
 
             echo "--- Prometheus /api/v1/series?match[]=istio_requests_total ---"
             curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total" || echo "Failed to query istio series"
