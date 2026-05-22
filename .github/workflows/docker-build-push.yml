@@ -1,18 +1,16 @@
 name: Build and Push Docker Images
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - '.github/workflows/docker-build-push.yml'
   workflow_dispatch:
     inputs:
       build_all_images:
         description: "Build every image instead of only changed ones"
         required: false
         default: "true"
+      image_tag:
+        description: "Optional tag override, for example v2-good or v2-bad. Leave empty to use the normal SHA and latest tags."
+        required: false
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -75,34 +73,10 @@ jobs:
 
           services=()
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.build_all_images }}" != "false" ]; then
+          if [ "${{ github.event.inputs.build_all_images }}" != "false" ]; then
             services=("${all_services[@]}")
           else
-            before='${{ github.event.before }}'
-            after='${{ github.sha }}'
-
-            if [ "$before" = "0000000000000000000000000000000000000000" ]; then
-              services=("${all_services[@]}")
-            else
-              mapfile -t changed_files < <(git diff --name-only "$before" "$after" -- src)
-
-              for file in "${changed_files[@]}"; do
-                case "$file" in
-                  src/adservice/*) services+=(adservice) ;;
-                  src/cartservice/*) services+=(cartservice) ;;
-                  src/checkoutservice/*) services+=(checkoutservice) ;;
-                  src/currencyservice/*) services+=(currencyservice) ;;
-                  src/emailservice/*) services+=(emailservice) ;;
-                  src/frontend/*) services+=(frontend) ;;
-                  src/loadgenerator/*) services+=(loadgenerator) ;;
-                  src/paymentservice/*) services+=(paymentservice) ;;
-                  src/productcatalogservice/*) services+=(productcatalogservice) ;;
-                  src/recommendationservice/*) services+=(recommendationservice) ;;
-                  src/shippingservice/*) services+=(shippingservice) ;;
-                  src/shoppingassistantservice/*) services+=(shoppingassistantservice) ;;
-                esac
-              done
-            fi
+            echo "build_all_images is false, so no images will be built from this manual run."
           fi
 
           declare -A seen=()
@@ -162,10 +136,16 @@ jobs:
           set -euo pipefail
 
           image="docker.io/${DOCKERHUB_USERNAME}/${{ matrix.service }}"
-          tags="${image}:${GITHUB_SHA}"
+          override_tag='${{ github.event.inputs.image_tag }}'
 
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            tags="${tags}"$'\n'"${image}:latest"
+          if [ -n "$override_tag" ]; then
+            tags="${image}:${override_tag}"
+          else
+            tags="${image}:${GITHUB_SHA}"
+
+            if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+              tags="${tags}"$'\n'"${image}:latest"
+            fi
           fi
 
           echo "tags<<EOF" >> "$GITHUB_OUTPUT"

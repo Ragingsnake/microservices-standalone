@@ -64,12 +64,12 @@ jobs:
             IP=$(kubectl -n monitoring get svc monitoring-grafana -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
 
             if [ -n "$HOSTNAME" ]; then
-              URL="https://$HOSTNAME"
+              URL="http://$HOSTNAME"
               break
             fi
 
             if [ -n "$IP" ]; then
-              URL="https://$IP"
+              URL="http://$IP"
               break
             fi
 
