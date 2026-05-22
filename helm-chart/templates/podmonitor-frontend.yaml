@@ -11,8 +11,13 @@ spec:
     matchNames:
       - {{ .Release.Namespace }}
   selector:
-    matchLabels:
-      app: {{ .Values.frontend.name }}
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - {{ .Values.frontend.name }}
+          # Flagger suffixes the primary deployment label (e.g. frontend -> frontend-primary).
+          - {{ printf "%s-primary" .Values.frontend.name }}
   podMetricsEndpoints:
     - port: http-envoy-prom
       path: /stats/prometheus

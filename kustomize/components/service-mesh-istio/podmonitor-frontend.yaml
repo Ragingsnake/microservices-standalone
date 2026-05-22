@@ -10,8 +10,12 @@ spec:
     matchNames:
       - onlineboutique
   selector:
-    matchLabels:
-      app: frontend
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - frontend
+          - frontend-primary
   podMetricsEndpoints:
     - port: http-envoy-prom
       path: /stats/prometheus

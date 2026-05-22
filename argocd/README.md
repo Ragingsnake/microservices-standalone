@@ -8,7 +8,7 @@ How it works:
 2. The root Application watches `argocd/apps/` in this repo.
 3. `argocd/apps/onlineboutique-helm-app.yaml` tells ArgoCD to deploy the Helm chart in `helm-chart/`.
 4. `argocd/apps/frontend-canary.yaml` lets Flagger manage the frontend canary rollout through Istio.
-5. `argocd/apps/frontend-metric-template.yaml` defines Prometheus queries Flagger uses for success-rate and latency checks.
+5. `argocd/apps/frontend-metric-template.yaml` defines Prometheus queries Flagger uses for success-rate and latency checks. Flagger renames primary pod labels to `app: frontend-primary`, so the frontend PodMonitor must select both `frontend` and `frontend-primary`.
 6. `argocd/apps/frontend-gateway.yaml` exposes the public frontend through the Istio ingress gateway.
 
 What ArgoCD does:

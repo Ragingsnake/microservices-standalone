@@ -15,6 +15,7 @@ spec:
             reporter="destination",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
+            destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http",
             response_code!~"5.*"
           }[{{ interval }}]
@@ -27,6 +28,7 @@ spec:
             reporter="destination",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
+            destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http"
           }[{{ interval }}]
         )
@@ -51,6 +53,7 @@ spec:
             reporter="destination",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
+            destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http"
           }[{{ interval }}]
         )
