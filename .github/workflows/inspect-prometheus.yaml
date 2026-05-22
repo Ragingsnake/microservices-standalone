@@ -131,6 +131,19 @@ jobs:
               echo "No dropped scrape target found for istio-ingressgateway"
             fi
 
+            echo "--- Prometheus rendered scrape config checks ---"
+            RENDERED_INGRESS_JOBS=$(curl -sS --fail http://localhost:9090/api/v1/status/config \
+              | jq -r '.data.yaml' \
+              | awk '
+                  BEGIN { in_job = 0; job = ""; found = 0 }
+                  /^- job_name: / { job = $0; in_job = 1 }
+                  in_job && /podMonitor\/istio-system\/istio-ingressgateway/ { print job; print; found = 1 }
+                  in_job && /serviceMonitor\/istio-system\/istio-ingressgateway/ { print job; print; found = 1 }
+                  END { if (!found) print "No rendered podMonitor/serviceMonitor job found for istio-ingressgateway" }
+                '
+            )
+            echo "$RENDERED_INGRESS_JOBS"
+
             echo "--- Prometheus podMonitor job summary ---"
             PODMONITOR_TARGETS=$(curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '.data.activeTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl, health, lastScrape, lastError}')
