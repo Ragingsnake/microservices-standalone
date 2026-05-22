@@ -17,7 +17,7 @@ spec:
         - name: images.tag
           value: latest
         - name: frontend.image.tag
-          value: ""
+          value: v2-good
         - name: frontend.externalService
           value: "false"
         - name: frontend.virtualService.create
