@@ -54,7 +54,7 @@ var (
 	plat platformDetails
 )
 
-canaryRollbackDemo = strings.EqualFold(os.Getenv("CANARY_ROLLBACK_DEMO"), "true")
+var canaryRollbackDemo = strings.EqualFold(os.Getenv("CANARY_ROLLBACK_DEMO"), "true")
 var validEnvs = []string{"local", "gcp", "azure", "aws", "onprem", "alibaba"}
 
 func abortCanaryRollbackDemo(w http.ResponseWriter) bool {
