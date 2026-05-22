@@ -201,6 +201,28 @@ jobs:
                   | {job: (.labels.job // .discoveredLabels.job // "unknown"), scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), labels: (.labels // {}), discoveredLabels: .discoveredLabels}
                 ' || echo "No dropped 15090 podMonitor target found"
 
+            echo "--- Prometheus exact frontend 15090 podMonitor probe ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=active' \
+              | jq -c '
+                  .data.activeTargets[]?
+                  | select((.discoveredLabels.__meta_kubernetes_pod_label_app // "") == "frontend")
+                  | select((.discoveredLabels.__address__ // "") | endswith(":15090"))
+                  | {job: .labels.job, scrapeUrl, health, lastScrape, lastError, labels: .labels, discoveredLabels: .discoveredLabels}
+                ' || echo "No active 15090 frontend target found"
+
+            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
+              | jq -c '
+                  .data.droppedTargets[]?
+                  | select((.discoveredLabels.__meta_kubernetes_pod_label_app // "") == "frontend")
+                  | select((.discoveredLabels.__address__ // "") | endswith(":15090"))
+                  | {job: (.labels.job // .discoveredLabels.job // "unknown"), scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), labels: (.labels // {}), discoveredLabels: .discoveredLabels}
+                ' || echo "No dropped 15090 frontend target found"
+
+            echo "--- Prometheus Istio request series check ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/series?match[]=istio_requests_total{reporter="destination"}' \
+              | jq -r '.data[]? | select(.destination_workload == "frontend" or .destination_service == "frontend") | @json' \
+              || echo "No istio_requests_total destination series found for frontend"
+
             echo "--- Prometheus podMonitor job summary ---"
             PODMONITOR_TARGETS=$(curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '.data.activeTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl, health, lastScrape, lastError}')
