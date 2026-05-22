@@ -1,0 +1,105 @@
+name: inspect prometheus
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: "Namespace to inspect"
+        required: false
+        default: "onlineboutique"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ vars.AWS_REGION }}"
+
+      - name: Inspect Prometheus and Istio metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_NS="${{ inputs.namespace }}"
+
+          echo "=== Monitoring namespace ==="
+          kubectl -n monitoring get deploy,pod,svc || true
+
+          echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
+          kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
+
+          echo "=== Prometheus readiness and API checks ==="
+          if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
+            kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
+            PF_PID=$!
+
+            PROM_READY=false
+            for i in $(seq 1 30); do
+              if curl -fsS http://localhost:9090/-/ready >/dev/null 2>&1; then
+                PROM_READY=true
+                break
+              fi
+              echo "Waiting for Prometheus port-forward to become ready... ($i/30)"
+              sleep 2
+            done
+
+            if [ "$PROM_READY" != "true" ]; then
+              echo "Prometheus port-forward did not become ready in time. Port-forward log:"
+              cat /tmp/prom-pf.log || true
+            fi
+
+            echo "--- Prometheus /api/v1/targets ---"
+            curl -sS --fail http://localhost:9090/api/v1/targets || echo "Failed to query Prometheus targets"
+
+            echo "--- Prometheus active Istio/Envoy targets ---"
+            curl -sS --fail http://localhost:9090/api/v1/targets \
+              | jq '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i"))' \
+              || echo "Failed to filter Istio/Envoy active targets"
+
+            echo "--- Prometheus dropped Istio targets ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
+              | jq '.data.droppedTargets[]? | select(((.discoveredLabels.__meta_kubernetes_namespace // "") == "istio-system") or ((.discoveredLabels.job // "") | test("istio|envoy"; "i")))' \
+              || echo "Failed to filter dropped Istio targets"
+
+            echo "--- Prometheus metric names matching istio|envoy ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/label/__name__/values' \
+              | jq '.data[]? | select(test("istio|envoy"; "i"))' \
+              || echo "Failed to query metric names"
+
+            echo "--- Prometheus /api/v1/series?match[]=istio_requests_total ---"
+            curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total" || echo "Failed to query istio series"
+
+            kill $PF_PID || true
+            sleep 1
+          else
+            echo "Prometheus service monitoring-kube-prometheus-prometheus not found in monitoring namespace"
+          fi
+
+          echo "=== Frontend public endpoint ==="
+          HOSTNAME=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+          IP=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+          if [ -n "$HOSTNAME" ]; then
+            echo "http://$HOSTNAME"
+          elif [ -n "$IP" ]; then
+            echo "http://$IP"
+          else
+            echo "Istio ingressgateway does not have a public endpoint yet."
+          fi
+
+      - name: Summarize inspection results
+        run: |
+          echo "## Prometheus Inspection" >> "$GITHUB_STEP_SUMMARY"
+          echo "Namespace inspected: ${{ inputs.namespace }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Check the Prometheus target, dropped-target, and metric-name output from the job logs above." >> "$GITHUB_STEP_SUMMARY"
