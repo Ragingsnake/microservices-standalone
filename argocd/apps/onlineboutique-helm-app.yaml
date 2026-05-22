@@ -16,6 +16,9 @@ spec:
           value: docker.io/ragingsnake
         - name: images.tag
           value: latest
+        # Frontend-only tag for canary demos: latest | v2-good | v2-bad (see src/frontend/CANARY-BUILD-PLAN.md)
+        - name: frontend.image.tag
+          value: ""
         - name: frontend.externalService
           value: "false"
         - name: frontend.virtualService.create

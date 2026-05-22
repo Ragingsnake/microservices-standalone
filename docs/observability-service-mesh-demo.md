@@ -105,8 +105,8 @@ Goal: prove that a healthy new frontend revision is promoted automatically.
 
 What to prepare:
 
-- Publish a new frontend image tag to Docker Hub, for example `v2-good`
-- Update `argocd/apps/onlineboutique-helm-app.yaml` so `images.tag` points to that new tag
+- Build and push a frontend image tag to Docker Hub, for example `v2-good` (see `src/frontend/CANARY-BUILD-PLAN.md`)
+- Update `argocd/apps/onlineboutique-helm-app.yaml` so `frontend.image.tag` points to that tag (other services can stay on `images.tag: latest`)
 - Commit and push that change to `main`
 
 Why this route matters:
@@ -152,8 +152,8 @@ Goal: prove that Flagger stops a bad release and keeps the last good version ser
 
 What to prepare:
 
-- Publish a deliberately bad frontend tag, for example `v2-bad`
-- Update `argocd/apps/onlineboutique-helm-app.yaml` so `images.tag` points to that bad tag
+- Build and push a deliberately bad frontend tag, for example `v2-bad` (see `src/frontend/CANARY-BUILD-PLAN.md`)
+- Update `argocd/apps/onlineboutique-helm-app.yaml` so `frontend.image.tag` points to that bad tag
 - Commit and push the change to `main`
 
 Two easy ways to make a bad tag:

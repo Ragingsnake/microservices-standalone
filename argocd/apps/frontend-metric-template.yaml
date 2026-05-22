@@ -16,7 +16,7 @@ spec:
             source_workload="istio-ingressgateway",
             source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
-            destination_canonical_service="{{ name }}",
+            destination_canonical_service=~"{{ name }}(-primary|-canary)?",
             destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http",
             response_code!~"5.*"
@@ -31,7 +31,7 @@ spec:
             source_workload="istio-ingressgateway",
             source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
-            destination_canonical_service="{{ name }}",
+            destination_canonical_service=~"{{ name }}(-primary|-canary)?",
             destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http"
           }[{{ interval }}]
@@ -58,7 +58,7 @@ spec:
             source_workload="istio-ingressgateway",
             source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
-            destination_canonical_service="{{ name }}",
+            destination_canonical_service=~"{{ name }}(-primary|-canary)?",
             destination_workload=~"{{ name }}(-primary|-canary)?",
             request_protocol="http"
           }[{{ interval }}]
