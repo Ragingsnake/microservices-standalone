@@ -118,8 +118,6 @@ frontend:
   create: true
   name: frontend
   image:
-    # Frontend-only image tag (e.g. latest, v2-good, v2-bad).
-    # Empty string uses images.tag; if that is also empty, uses "latest".
     tag: ""
   externalService: true
   cymbalBranding: false
