@@ -155,6 +155,8 @@ loadGenerator:
 
 serviceMeshIstio:
   create: true
+  # Istio revision from "istioctl install" (demo profile uses "default").
+  revision: default
 
 paymentService:
   create: true

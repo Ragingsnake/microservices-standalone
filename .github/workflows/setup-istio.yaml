@@ -57,7 +57,9 @@ jobs:
         run: |
           set -euo pipefail
           kubectl create namespace onlineboutique --dry-run=client -o yaml | kubectl apply -f -
-          kubectl label namespace onlineboutique istio-injection=enabled --overwrite
+          # Istio 1.x uses revision-based injection (demo profile -> revision "default").
+          kubectl label namespace onlineboutique istio.io/rev=default --overwrite
+          kubectl label namespace onlineboutique istio-injection- 2>/dev/null || true
           kubectl get namespace onlineboutique --show-labels
 
       - name: Summarize Istio access

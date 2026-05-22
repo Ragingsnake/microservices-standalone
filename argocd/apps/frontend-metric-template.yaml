@@ -12,7 +12,9 @@ spec:
       sum(
         rate(
           istio_requests_total{
-            reporter="destination",
+            reporter="source",
+            source_workload="istio-ingressgateway",
+            source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
             destination_workload=~"{{ name }}(-primary|-canary)?",
@@ -25,7 +27,9 @@ spec:
       sum(
         rate(
           istio_requests_total{
-            reporter="destination",
+            reporter="source",
+            source_workload="istio-ingressgateway",
+            source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
             destination_workload=~"{{ name }}(-primary|-canary)?",
@@ -50,7 +54,9 @@ spec:
       sum(
         rate(
           istio_request_duration_milliseconds_bucket{
-            reporter="destination",
+            reporter="source",
+            source_workload="istio-ingressgateway",
+            source_workload_namespace="istio-system",
             destination_workload_namespace="{{ namespace }}",
             destination_canonical_service="{{ name }}",
             destination_workload=~"{{ name }}(-primary|-canary)?",

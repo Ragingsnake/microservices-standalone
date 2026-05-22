@@ -49,6 +49,12 @@ jobs:
           echo "=== PodMonitor: istio-ingressgateway (istio-system) ==="
           kubectl -n istio-system get podmonitor istio-ingressgateway -o yaml || echo "PodMonitor istio-ingressgateway not found in istio-system"
 
+          echo "=== PodMonitor: frontend ($APP_NS) ==="
+          kubectl -n "$APP_NS" get podmonitor frontend -o yaml || echo "PodMonitor frontend not found in $APP_NS"
+
+          echo "=== onlineboutique namespace Istio labels ==="
+          kubectl get namespace "$APP_NS" --show-labels || true
+
           echo "=== istio-ingressgateway pod ports ==="
           kubectl -n istio-system get pods -l istio=ingressgateway -o json \
             | jq -c '.items[]? | {
@@ -82,13 +88,23 @@ jobs:
               }' || echo "No pods with app=frontend"
 
           echo "=== frontend-primary pod injection state (app=frontend-primary) ==="
-          kubectl -n "$APP_NS" get pods -l app=frontend-primary -o json \
+          FRONTEND_PRIMARY_PODS=$(kubectl -n "$APP_NS" get pods -l app=frontend-primary -o json \
             | jq -c '.items[]? | {
                 pod: .metadata.name,
                 app: (.metadata.labels.app // "none"),
                 revision: (.metadata.labels["istio.io/rev"] // "none"),
                 sidecarInjected: ([.spec.containers[]?.name] | index("istio-proxy") != null)
-              }' || echo "No pods with app=frontend-primary"
+              }')
+          if [ -n "$FRONTEND_PRIMARY_PODS" ]; then
+            echo "$FRONTEND_PRIMARY_PODS"
+            if echo "$FRONTEND_PRIMARY_PODS" | grep -q '"sidecarInjected":false'; then
+              echo "WARNING: frontend-primary pods are missing the istio-proxy sidecar."
+              echo "Fix: kubectl label namespace $APP_NS istio.io/rev=default --overwrite"
+              echo "Then: kubectl -n $APP_NS rollout restart deployment/frontend-primary deployment/frontend"
+            fi
+          else
+            echo "No pods with app=frontend-primary"
+          fi
 
           echo "=== frontend rollout status ==="
           kubectl -n "$APP_NS" rollout status deployment/frontend --timeout=2m || true
@@ -260,7 +276,7 @@ jobs:
               || echo "No istio_requests_total series found for frontend"
 
             echo "--- Flagger request-success-rate query probe ---"
-            SUCCESS_RATE_QUERY="(sum(rate(istio_requests_total{reporter=\"destination\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",destination_workload=~\"frontend(-primary|-canary)?\",request_protocol=\"http\",response_code!~\"5.*\"}[1m]))/sum(rate(istio_requests_total{reporter=\"destination\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",destination_workload=~\"frontend(-primary|-canary)?\",request_protocol=\"http\"}[1m])))*100"
+            SUCCESS_RATE_QUERY="(sum(rate(istio_requests_total{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",destination_workload=~\"frontend(-primary|-canary)?\",request_protocol=\"http\",response_code!~\"5.*\"}[1m]))/sum(rate(istio_requests_total{reporter=\"source\",source_workload=\"istio-ingressgateway\",source_workload_namespace=\"istio-system\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",destination_workload=~\"frontend(-primary|-canary)?\",request_protocol=\"http\"}[1m])))*100"
             curl -sS --fail --get 'http://localhost:9090/api/v1/query' \
               --data-urlencode "query=${SUCCESS_RATE_QUERY}" \
               | jq -c '{status, resultType, value: (.data.result[0].value // ["none","no data"])}' \

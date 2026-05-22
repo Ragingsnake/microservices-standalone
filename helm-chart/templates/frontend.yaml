@@ -42,9 +42,14 @@ spec:
     metadata:
       labels:
         app: {{ .Values.frontend.name }}
+        {{- if .Values.serviceMeshIstio.create }}
+        istio.io/rev: {{ .Values.serviceMeshIstio.revision | default "default" }}
+        {{- end }}
       annotations:
         sidecar.istio.io/rewriteAppHTTPProbers: "true"
+        {{- if .Values.serviceMeshIstio.create }}
         sidecar.istio.io/inject: "true"
+        {{- end }}
     spec:
       {{- if .Values.serviceAccounts.create }}
       serviceAccountName: {{ .Values.frontend.name }}
