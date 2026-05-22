@@ -6,12 +6,12 @@ on:
         description: "Name of the artifact containing the kubeconfig from a previous job"
         required: true
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - 'argocd/**'
-      - '.github/workflows/setup-argocd.yaml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'argocd/**'
+  #     - '.github/workflows/setup-argocd.yaml'
   pull_request:
     paths:
       - 'argocd/**'

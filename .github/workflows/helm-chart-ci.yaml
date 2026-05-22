@@ -14,12 +14,12 @@
 
 name: helm-chart-ci
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'helm-chart/**'
-      - '.github/workflows/helm-chart-ci.yaml'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - 'helm-chart/**'
+  #     - '.github/workflows/helm-chart-ci.yaml'
   pull_request:
     paths:
       - 'helm-chart/**'
@@ -37,7 +37,7 @@ jobs:
         run: |
           cd helm-chart/
           helm template . > helm-template.yaml
-          cat helm-template.yaml 
+          cat helm-template.yaml
           kustomize create --resources helm-template.yaml
           kustomize build .
       - name: helm template grpc health probes
