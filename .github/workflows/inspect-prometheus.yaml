@@ -140,6 +140,15 @@ jobs:
               echo "No active podMonitor targets found"
             fi
 
+            echo "--- Prometheus podMonitor dropped target summary ---"
+            DROPPED_PODMONITOR_TARGETS=$(curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
+              | jq -c '.data.droppedTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), discoveredLabels: .discoveredLabels}')
+            if [ -n "$DROPPED_PODMONITOR_TARGETS" ]; then
+              echo "$DROPPED_PODMONITOR_TARGETS"
+            else
+              echo "No dropped podMonitor targets found"
+            fi
+
             kill $PF_PID || true
             sleep 1
           else
