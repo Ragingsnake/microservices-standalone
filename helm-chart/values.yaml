@@ -143,6 +143,8 @@ loadGenerator:
   create: true
   name: loadgenerator
   checkFrontendInitContainer: true
+  # Send synthetic traffic through Istio ingress so Flagger sees the same path real users take.
+  frontendAddr: istio-ingressgateway.istio-system.svc.cluster.local
   resources:
     requests:
       cpu: 300m
