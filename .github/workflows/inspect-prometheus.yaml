@@ -40,11 +40,6 @@ jobs:
           echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
           kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
 
-          echo "=== Flagger canary request metrics ==="
-          kubectl -n "$APP_NS" get canary frontend -o json \
-            | jq '.spec.analysis.metrics' \
-            || echo "Failed to read canary analysis metrics"
-
           echo "=== Prometheus readiness and API checks ==="
           if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
             kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
@@ -65,57 +60,23 @@ jobs:
               cat /tmp/prom-pf.log || true
             fi
 
-            echo "--- Prometheus /api/v1/targets ---"
-            curl -sS --fail http://localhost:9090/api/v1/targets || echo "Failed to query Prometheus targets"
-
-            echo "--- Prometheus active Istio/Envoy targets ---"
+            echo "--- Prometheus ingressgateway scrape summary ---"
             INGRESS_TARGET=$(curl -sS --fail http://localhost:9090/api/v1/targets \
-              | jq -c '.data.activeTargets[]? | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("istio-ingressgateway"; "i"))) | {scrapeUrl, health, lastScrape, lastError, labels, discoveredLabels}')
+              | jq -c '.data.activeTargets[]? \
+                | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("istio-ingressgateway"; "i"))) \
+                | {
+                    service: (.discoveredLabels.__meta_kubernetes_service_name // .labels.job // "unknown"),
+                    endpoint: (.discoveredLabels.__meta_kubernetes_endpoints_name // "unknown"),
+                    pod: (.discoveredLabels.__meta_kubernetes_pod_name // "unknown"),
+                    scrapeUrl,
+                    health,
+                    lastScrape,
+                    lastError
+                  }')
             if [ -n "$INGRESS_TARGET" ]; then
               echo "$INGRESS_TARGET"
             else
               echo "No active scrape target found for istio-ingressgateway"
-            fi
-
-            echo "--- Prometheus active Istio/Envoy targets ---"
-            curl -sS --fail http://localhost:9090/api/v1/targets \
-              | jq '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i"))' \
-              || echo "Failed to filter Istio/Envoy active targets"
-
-            echo "--- Prometheus dropped Istio targets ---"
-            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
-              | jq '.data.droppedTargets[]? | select(((.discoveredLabels.__meta_kubernetes_namespace // "") == "istio-system") or ((.discoveredLabels.job // "") | test("istio|envoy"; "i")))' \
-              || echo "Failed to filter dropped Istio targets"
-
-            echo "--- Prometheus metric names matching istio|envoy ---"
-            ISTIO_METRICS=$(curl -sS --fail 'http://localhost:9090/api/v1/label/__name__/values' \
-              | jq -r '.data[]? | select(test("istio|envoy"; "i"))')
-            if [ -n "$ISTIO_METRICS" ]; then
-              printf '%s\n' "$ISTIO_METRICS"
-            else
-              echo "No metric names matching istio|envoy were found"
-            fi
-
-            echo "--- Prometheus /api/v1/series?match[]=istio_requests_total ---"
-            ISTIO_REQUEST_SERIES=$(curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total")
-            printf '%s\n' "$ISTIO_REQUEST_SERIES"
-
-            if printf '%s' "$ISTIO_REQUEST_SERIES" | jq -e '.data | length > 0' >/dev/null 2>&1; then
-              echo "Istio request series are present; Flagger's request-success-rate has data to evaluate."
-            else
-              echo "Istio request series are missing; Flagger's request-success-rate will continue to report no values."
-            fi
-
-            echo "--- Prometheus series for the ingressgateway scrape job ---"
-            INGRESS_JOB_SERIES=$(curl -sS --fail --get \
-              --data-urlencode 'match[]=up{job="serviceMonitor/istio-system/istio-ingressgateway/0"}' \
-              http://localhost:9090/api/v1/series)
-            printf '%s\n' "$INGRESS_JOB_SERIES"
-
-            if printf '%s' "$INGRESS_JOB_SERIES" | jq -e '.data | length > 0' >/dev/null 2>&1; then
-              echo "Prometheus is storing series for the ingressgateway scrape job."
-            else
-              echo "Prometheus is not storing any series for the ingressgateway scrape job yet."
             fi
 
             kill $PF_PID || true
@@ -124,19 +85,8 @@ jobs:
             echo "Prometheus service monitoring-kube-prometheus-prometheus not found in monitoring namespace"
           fi
 
-          echo "=== Frontend public endpoint ==="
-          HOSTNAME=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-          IP=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-          if [ -n "$HOSTNAME" ]; then
-            echo "http://$HOSTNAME"
-          elif [ -n "$IP" ]; then
-            echo "http://$IP"
-          else
-            echo "Istio ingressgateway does not have a public endpoint yet."
-          fi
-
       - name: Summarize inspection results
         run: |
           echo "## Prometheus Inspection" >> "$GITHUB_STEP_SUMMARY"
           echo "Namespace inspected: ${{ inputs.namespace }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Check the Prometheus target, dropped-target, and metric-name output from the job logs above." >> "$GITHUB_STEP_SUMMARY"
+          echo "Check the ingressgateway scrape summary output from the job logs above." >> "$GITHUB_STEP_SUMMARY"
