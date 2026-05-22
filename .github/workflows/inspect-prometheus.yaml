@@ -75,6 +75,25 @@ jobs:
                 matchingPorts: [.spec.containers[]?.ports[]? | select(.containerPort == 15090 or .name == "http-envoy-prom") | {containerPort, name, protocol}]
               }'
 
+          echo "=== frontend pod injection state ==="
+          kubectl -n onlineboutique get pods -l app=frontend -o json \
+            | jq -c '.items[]? | {
+                pod: .metadata.name,
+                revision: (.metadata.labels["istio.io/rev"] // "none"),
+                sidecarInjected: ([.spec.containers[]?.name] | index("istio-proxy") != null),
+                containers: [.spec.containers[]?.name],
+                containerPorts: [.spec.containers[]? | {name, ports: [.ports[]? | {name, containerPort, protocol}]}]
+              }'
+
+          echo "=== istio-system ingress revision summary ==="
+          kubectl -n istio-system get pods -l istio=ingressgateway -o json \
+            | jq -c '.items[]? | {
+                pod: .metadata.name,
+                revision: (.metadata.labels["istio.io/rev"] // "none"),
+                release: (.metadata.labels.release // "none"),
+                sidecarInjected: ([.spec.containers[]?.name] | index("istio-proxy") != null)
+              }'
+
           echo "=== Prometheus readiness and API checks ==="
           if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
             kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
