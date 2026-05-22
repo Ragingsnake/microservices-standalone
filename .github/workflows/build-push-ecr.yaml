@@ -67,5 +67,5 @@ jobs:
         with:
           context: ${{ steps.context.outputs.path }}
           push: true
-          tags: public.ecr.aws/n2m8n7v2/uit/devops-project:${{ matrix.service }}-${{ steps.tag.outputs.tag }}
+          tags: public.ecr.aws/n2m8n7v2/uit/devops-project/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
           platforms: linux/amd64,linux/arm64
