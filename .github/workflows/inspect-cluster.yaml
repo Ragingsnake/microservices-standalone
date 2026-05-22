@@ -63,6 +63,30 @@ jobs:
           echo "=== Monitoring namespace ==="
           kubectl -n monitoring get deploy,pod,svc || true
 
+          echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
+          kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
+
+          echo "=== Prometheus targets and istio series (port-forward) ==="
+          if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
+            echo "Found Prometheus service, port-forwarding to localhost:9090"
+            kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
+            PF_PID=$!
+            # give port-forward a moment
+            sleep 3
+
+            echo "--- Prometheus /api/v1/targets ---"
+            curl -sS --fail http://localhost:9090/api/v1/targets || echo "Failed to query Prometheus targets"
+
+            echo "--- Prometheus /api/v1/series?match[]=istio_requests_total ---"
+            curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total" || echo "Failed to query istio series"
+
+            echo "Killing port-forward (PID $PF_PID)"
+            kill $PF_PID || true
+            sleep 1
+          else
+            echo "Prometheus service monitoring-kube-prometheus-prometheus not found in monitoring namespace"
+          fi
+
           echo "=== Frontend public endpoint ==="
           HOSTNAME=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
           IP=$(kubectl -n istio-system get svc istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
