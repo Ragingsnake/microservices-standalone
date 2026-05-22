@@ -70,7 +70,7 @@ jobs:
 
             echo "--- Prometheus active Istio/Envoy targets ---"
             INGRESS_TARGET=$(curl -sS --fail http://localhost:9090/api/v1/targets \
-              | jq -c '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i") and ((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway"))')
+              | jq -c '.data.activeTargets[]? | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("istio-ingressgateway"; "i"))) | {scrapeUrl, health, lastScrape, lastError, labels, discoveredLabels}')
             if [ -n "$INGRESS_TARGET" ]; then
               echo "$INGRESS_TARGET"
             else
@@ -104,6 +104,16 @@ jobs:
               echo "Istio request series are present; Flagger's request-success-rate has data to evaluate."
             else
               echo "Istio request series are missing; Flagger's request-success-rate will continue to report no values."
+            fi
+
+            echo "--- Prometheus series for the ingressgateway scrape job ---"
+            INGRESS_JOB_SERIES=$(curl -sS --fail 'http://localhost:9090/api/v1/series?match[]=up{job="serviceMonitor/istio-system/istio-ingressgateway/0"}' )
+            printf '%s\n' "$INGRESS_JOB_SERIES"
+
+            if printf '%s' "$INGRESS_JOB_SERIES" | jq -e '.data | length > 0' >/dev/null 2>&1; then
+              echo "Prometheus is storing series for the ingressgateway scrape job."
+            else
+              echo "Prometheus is not storing any series for the ingressgateway scrape job yet."
             fi
 
             kill $PF_PID || true
