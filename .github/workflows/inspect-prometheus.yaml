@@ -219,9 +219,11 @@ jobs:
                 ' || echo "No dropped 15090 frontend target found"
 
             echo "--- Prometheus Istio request series check ---"
-            curl -sS --fail 'http://localhost:9090/api/v1/series?match[]=istio_requests_total{reporter="destination"}' \
-              | jq -r '.data[]? | select(.destination_workload == "frontend" or .destination_service == "frontend") | @json' \
-              || echo "No istio_requests_total destination series found for frontend"
+            curl -sS --fail --get 'http://localhost:9090/api/v1/series' \
+              --data-urlencode 'match[]=istio_requests_total{reporter="destination",destination_workload="frontend"}' \
+              --data-urlencode 'match[]=istio_requests_total{reporter="source",source_workload="frontend"}' \
+              | jq -r '.data[]? | @json' \
+              || echo "No istio_requests_total series found for frontend"
 
             echo "--- Prometheus podMonitor job summary ---"
             PODMONITOR_TARGETS=$(curl -sS --fail http://localhost:9090/api/v1/targets \
