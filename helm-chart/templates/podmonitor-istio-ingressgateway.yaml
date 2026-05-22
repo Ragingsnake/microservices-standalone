@@ -14,7 +14,7 @@ spec:
     matchLabels:
       istio: ingressgateway
   podMetricsEndpoints:
-    - port: http-envoy-prom
+    - targetPort: 15090
       path: /stats/prometheus
       interval: 15s
 {{- end }}

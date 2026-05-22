@@ -49,7 +49,12 @@ jobs:
                 pod: .metadata.name,
                 labels: .metadata.labels,
                 ports: [
-                  .spec.containers[]?.ports[]? | {name, containerPort, protocol}
+                  .spec.containers[]? | {
+                    container: .name,
+                    ports: [
+                      .ports[]? | {name, containerPort, protocol}
+                    ]
+                  }
                 ]
               }'
 
