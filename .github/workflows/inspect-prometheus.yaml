@@ -144,6 +144,31 @@ jobs:
             )
             echo "$RENDERED_INGRESS_JOBS"
 
+            echo "--- Prometheus rendered podMonitor job block ---"
+            curl -sS --fail http://localhost:9090/api/v1/status/config \
+              | jq -r '.data.yaml' \
+              | awk '
+                  /^- job_name: podMonitor\/istio-system\/istio-ingressgateway\/0$/ { print; show = 1; n = 0; next }
+                  show { print; n += 1 }
+                  n >= 40 { exit }
+                '
+
+            echo "--- Prometheus exact podMonitor target probe ---"
+            curl -sS --fail http://localhost:9090/api/v1/targets \
+              | jq -c '
+                  .data.activeTargets[]?
+                  | select((.labels.job // "") == "podMonitor/istio-system/istio-ingressgateway/0")
+                  | {job: .labels.job, scrapeUrl, health, lastScrape, lastError, labels: .labels, discoveredLabels: .discoveredLabels}
+                ' || echo "No active target for podMonitor/istio-system/istio-ingressgateway/0"
+
+            echo "--- Prometheus exact podMonitor dropped target probe ---"
+            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
+              | jq -c '
+                  .data.droppedTargets[]?
+                  | select((.labels.job // .discoveredLabels.job // "") == "podMonitor/istio-system/istio-ingressgateway/0")
+                  | {job: (.labels.job // .discoveredLabels.job // "unknown"), scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), discoveredLabels: .discoveredLabels}
+                ' || echo "No dropped target for podMonitor/istio-system/istio-ingressgateway/0"
+
             echo "--- Prometheus podMonitor job summary ---"
             PODMONITOR_TARGETS=$(curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '.data.activeTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl, health, lastScrape, lastError}')
