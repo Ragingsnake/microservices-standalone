@@ -17,7 +17,7 @@
 # Declare variables to be passed into your templates.
 
 images:
-  repository: public.ecr.aws/n2m8n7v2/uit/devops-project
+  repository: public.ecr.aws/n2m8n7v2/devops-project
   # Overrides the image tag whose default is the chart appVersion.
   tag: "v1.0.0"
   # Override the full image reference per-service (e.g. for ECR usage)
