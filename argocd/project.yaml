@@ -8,7 +8,7 @@ spec:
   sourceRepos:
   - '*'
   destinations:
-  - namespace: default
+  - namespace: onlineboutique
     server: https://kubernetes.default.svc
   clusterResourceWhitelist:
   - group: '*'

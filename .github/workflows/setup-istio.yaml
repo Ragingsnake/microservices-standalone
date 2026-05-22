@@ -1,0 +1,68 @@
+name: setup istio
+on:
+  workflow_call:
+    inputs:
+      kubeconfig-artifact:
+        description: "Name of the artifact containing the kubeconfig"
+        required: true
+        type: string
+      namespace:
+        description: "Namespace to label for sidecar injection"
+        required: false
+        default: "default"
+        type: string
+      istio-version:
+        description: "Istio version to install"
+        required: false
+        default: "1.24.3"
+        type: string
+jobs:
+  setup-istio:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download kubeconfig from caller
+        if: github.event_name == 'workflow_call'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.kubeconfig-artifact }}
+          path: ~/.kube/
+
+      - name: Configure AWS Credentials
+        if: github.event_name != 'workflow_call'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        if: github.event_name != 'workflow_call'
+        run: aws eks update-kubeconfig --name "${{ secrets.EKS_CLUSTER_NAME }}" --region "${{ secrets.AWS_REGION }}"
+
+      - name: Download and install Istio
+        run: |
+          curl -sL https://istio.io/downloadIstio | ISTIO_VERSION=${{ inputs.istio-version }} sh -
+          ISTIO_DIR="istio-${{ inputs.istio-version }}"
+          echo "$GITHUB_WORKSPACE/$ISTIO_DIR/bin" >> $GITHUB_PATH
+
+      - name: Install Istio control plane
+        run: istioctl install --set profile=demo -y
+
+      - name: Install Prometheus addon
+        run: kubectl apply -f istio-${{ inputs.istio-version }}/samples/addons/prometheus.yaml
+
+      - name: Install Kiali addon
+        run: kubectl apply -f istio-${{ inputs.istio-version }}/samples/addons/kiali.yaml
+
+      - name: Wait for Kiali to be ready
+        run: kubectl rollout status deployment/kiali -n istio-system --timeout=120s
+
+      - name: Label namespace for sidecar injection
+        run: kubectl label namespace ${{ inputs.namespace }} istio-injection=enabled --overwrite
+
+      - name: Output Kiali access info
+        run: |
+          echo "## Istio + Kiali installed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Kiali: \`kubectl port-forward svc/kiali 20001:20001 -n istio-system\`" >> "$GITHUB_STEP_SUMMARY"

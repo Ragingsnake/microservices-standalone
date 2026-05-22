@@ -83,10 +83,20 @@ jobs:
     secrets: inherit
 
   # ------------------------------------------------------------------
+  # 2.5 Install Istio service mesh + Kiali dashboard
+  # ------------------------------------------------------------------
+  setup-istio:
+    needs: setup-argocd
+    uses: ./.github/workflows/setup-istio.yaml
+    with:
+      kubeconfig-artifact: kubeconfig
+    secrets: inherit
+
+  # ------------------------------------------------------------------
   # 3. Deploy microservices to the cluster
   # ------------------------------------------------------------------
   deploy-microservices:
-    needs: setup-argocd
+    needs: setup-istio
     runs-on: ubuntu-latest
     permissions:
       actions: read
