@@ -54,9 +54,22 @@ var (
 	plat platformDetails
 )
 
+canaryRollbackDemo = strings.EqualFold(os.Getenv("CANARY_ROLLBACK_DEMO"), "true")
 var validEnvs = []string{"local", "gcp", "azure", "aws", "onprem", "alibaba"}
 
+func abortCanaryRollbackDemo(w http.ResponseWriter) bool {
+	if !canaryRollbackDemo {
+		return false
+	}
+	http.Error(w, "canary rollback demo: intentional failure", http.StatusInternalServerError)
+	return true
+}
+
 func (fe *frontendServer) homeHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	log.WithField("currency", currentCurrency(r)).Info("home")
 	currencies, err := fe.getCurrencies(r.Context())
@@ -142,6 +155,10 @@ func (plat *platformDetails) setPlatformDetails(env string) {
 }
 
 func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	id := mux.Vars(r)["id"]
 	if id == "" {
@@ -209,6 +226,10 @@ func (fe *frontendServer) productHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+	
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	quantity, _ := strconv.ParseUint(r.FormValue("quantity"), 10, 32)
 	productID := r.FormValue("product_id")
@@ -237,6 +258,10 @@ func (fe *frontendServer) addToCartHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (fe *frontendServer) emptyCartHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+	
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	log.Debug("emptying cart")
 
@@ -249,6 +274,10 @@ func (fe *frontendServer) emptyCartHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+	
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	log.Debug("view user cart")
 	currencies, err := fe.getCurrencies(r.Context())
@@ -318,6 +347,10 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 }
 
 func (fe *frontendServer) placeOrderHandler(w http.ResponseWriter, r *http.Request) {
+	if abortCanaryRollbackDemo(w) {
+		return
+	}
+	
 	log := r.Context().Value(ctxKeyLog{}).(logrus.FieldLogger)
 	log.Debug("placing order")
 
