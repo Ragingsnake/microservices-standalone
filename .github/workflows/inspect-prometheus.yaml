@@ -40,6 +40,11 @@ jobs:
           echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
           kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
 
+          echo "=== Flagger canary request metrics ==="
+          kubectl -n "$APP_NS" get canary frontend -o json \
+            | jq '.spec.analysis.metrics' \
+            || echo "Failed to read canary analysis metrics"
+
           echo "=== Prometheus readiness and API checks ==="
           if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
             kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/tmp/prom-pf.log 2>&1 &
@@ -64,6 +69,15 @@ jobs:
             curl -sS --fail http://localhost:9090/api/v1/targets || echo "Failed to query Prometheus targets"
 
             echo "--- Prometheus active Istio/Envoy targets ---"
+            INGRESS_TARGET=$(curl -sS --fail http://localhost:9090/api/v1/targets \
+              | jq -c '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i") and ((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway"))')
+            if [ -n "$INGRESS_TARGET" ]; then
+              echo "$INGRESS_TARGET"
+            else
+              echo "No active scrape target found for istio-ingressgateway"
+            fi
+
+            echo "--- Prometheus active Istio/Envoy targets ---"
             curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq '.data.activeTargets[]? | select((.scrapeUrl // "") | test("istio|envoy|15090"; "i"))' \
               || echo "Failed to filter Istio/Envoy active targets"
@@ -74,12 +88,23 @@ jobs:
               || echo "Failed to filter dropped Istio targets"
 
             echo "--- Prometheus metric names matching istio|envoy ---"
-            curl -sS --fail 'http://localhost:9090/api/v1/label/__name__/values' \
-              | jq '.data[]? | select(test("istio|envoy"; "i"))' \
-              || echo "Failed to query metric names"
+            ISTIO_METRICS=$(curl -sS --fail 'http://localhost:9090/api/v1/label/__name__/values' \
+              | jq -r '.data[]? | select(test("istio|envoy"; "i"))')
+            if [ -n "$ISTIO_METRICS" ]; then
+              printf '%s\n' "$ISTIO_METRICS"
+            else
+              echo "No metric names matching istio|envoy were found"
+            fi
 
             echo "--- Prometheus /api/v1/series?match[]=istio_requests_total ---"
-            curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total" || echo "Failed to query istio series"
+            ISTIO_REQUEST_SERIES=$(curl -sS --fail "http://localhost:9090/api/v1/series?match[]=istio_requests_total")
+            printf '%s\n' "$ISTIO_REQUEST_SERIES"
+
+            if printf '%s' "$ISTIO_REQUEST_SERIES" | jq -e '.data | length > 0' >/dev/null 2>&1; then
+              echo "Istio request series are present; Flagger's request-success-rate has data to evaluate."
+            else
+              echo "Istio request series are missing; Flagger's request-success-rate will continue to report no values."
+            fi
 
             kill $PF_PID || true
             sleep 1
