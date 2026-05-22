@@ -63,9 +63,6 @@ jobs:
           echo "=== Monitoring namespace ==="
           kubectl -n monitoring get deploy,pod,svc || true
 
-          echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
-          kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
-
           echo "=== Prometheus targets and istio series (port-forward) ==="
           if kubectl -n monitoring get svc monitoring-kube-prometheus-prometheus >/dev/null 2>&1; then
             echo "Found Prometheus service, port-forwarding to localhost:9090"

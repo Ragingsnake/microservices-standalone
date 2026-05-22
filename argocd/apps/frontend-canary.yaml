@@ -24,10 +24,16 @@ spec:
     stepWeight: 10
     metrics:
       - name: request-success-rate
+        templateRef:
+          name: frontend-request-success-rate
+          namespace: onlineboutique
         thresholdRange:
           min: 99
         interval: 1m
       - name: request-duration
+        templateRef:
+          name: frontend-request-duration
+          namespace: onlineboutique
         thresholdRange:
           max: 500
         interval: 1m

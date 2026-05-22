@@ -46,9 +46,6 @@ jobs:
                 podMonitorNamespaceSelector: .spec.podMonitorNamespaceSelector
               }' || echo "Prometheus custom resource not found"
 
-          echo "=== ServiceMonitor: istio-ingressgateway (istio-system) ==="
-          kubectl -n istio-system get servicemonitor istio-ingressgateway -o yaml || echo "ServiceMonitor istio-ingressgateway not found in istio-system"
-
           echo "=== PodMonitor: istio-ingressgateway (istio-system) ==="
           kubectl -n istio-system get podmonitor istio-ingressgateway -o yaml || echo "PodMonitor istio-ingressgateway not found in istio-system"
 
@@ -76,7 +73,7 @@ jobs:
               }'
 
           echo "=== frontend pod injection state ==="
-          kubectl -n onlineboutique get pods -l app=frontend -o json \
+          kubectl -n "$APP_NS" get pods -l app=frontend -o json \
             | jq -c '.items[]? | {
                 pod: .metadata.name,
                 revision: (.metadata.labels["istio.io/rev"] // "none"),
@@ -86,24 +83,7 @@ jobs:
               }'
 
           echo "=== frontend rollout status ==="
-          kubectl -n onlineboutique rollout status deployment/frontend --timeout=2m || true
-
-          echo "=== frontend rollout history ==="
-          kubectl -n onlineboutique rollout history deployment/frontend || true
-
-          echo "=== restart frontend rollout and wait ==="
-          kubectl -n onlineboutique rollout restart deployment/frontend
-          kubectl -n onlineboutique rollout status deployment/frontend --timeout=5m
-
-          echo "=== frontend pod injection state after restart ==="
-          kubectl -n onlineboutique get pods -l app=frontend -o json \
-            | jq -c '.items[]? | {
-                pod: .metadata.name,
-                revision: (.metadata.labels["istio.io/rev"] // "none"),
-                sidecarInjected: ([.spec.containers[]?.name] | index("istio-proxy") != null),
-                containers: [.spec.containers[]?.name],
-                containerPorts: [.spec.containers[]? | {name, ports: [.ports[]? | {name, containerPort, protocol}]}]
-              }'
+          kubectl -n "$APP_NS" rollout status deployment/frontend --timeout=2m || true
 
           echo "=== istio-system ingress revision summary ==="
           kubectl -n istio-system get pods -l istio=ingressgateway -o json \
@@ -115,7 +95,7 @@ jobs:
               }'
 
           echo "=== Flagger canary status ==="
-          kubectl -n onlineboutique get canary frontend -o json \
+          kubectl -n "$APP_NS" get canary frontend -o json \
             | jq -c '{
                 name: .metadata.name,
                 namespace: .metadata.namespace,
@@ -129,10 +109,10 @@ jobs:
               }' || echo "Frontend canary not found"
 
           echo "=== Flagger canary events ==="
-          kubectl -n onlineboutique get events --sort-by=.lastTimestamp \
+          kubectl -n "$APP_NS" get events --sort-by=.lastTimestamp \
             --field-selector involvedObject.kind=Canary,involvedObject.name=frontend \
             -o json \
-            | jq -r '.items[]? | "\(.lastTimestamp // .eventTime // \"unknown\")\t\(.type // \"unknown\")\t\(.reason // \"unknown\")\t\(.message // \"\")"' \
+            | jq -r '.items[]? | [(.lastTimestamp // .eventTime // "unknown"), (.type // "unknown"), (.reason // "unknown"), (.message // "")] | @tsv' \
             || echo "No canary events found"
 
           echo "=== Prometheus readiness and API checks ==="
@@ -159,11 +139,15 @@ jobs:
             INGRESS_TARGET=$(curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '
                   .data.activeTargets[]?
-                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("(serviceMonitor|podMonitor)/.*istio-ingressgateway"; "i")))
+                  | select(
+                      (.labels.job // "") == "istio-system/istio-ingressgateway"
+                      or ((.discoveredLabels.__meta_kubernetes_pod_label_app // "") == "istio-ingressgateway"
+                          and ((.discoveredLabels.__address__ // "") | endswith(":15090")))
+                    )
                   | {
-                      service: (.discoveredLabels.__meta_kubernetes_service_name // .labels.job // "unknown"),
-                      endpoint: (.discoveredLabels.__meta_kubernetes_endpoints_name // "unknown"),
+                      job: (.labels.job // "unknown"),
                       pod: (.discoveredLabels.__meta_kubernetes_pod_name // "unknown"),
+                      address: (.discoveredLabels.__address__ // "unknown"),
                       scrapeUrl,
                       health,
                       lastScrape,
@@ -179,15 +163,13 @@ jobs:
             DROPPED_INGRESS_TARGET=$(curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
               | jq -c '
                   .data.droppedTargets[]?
-                  | select(((.discoveredLabels.__meta_kubernetes_service_name // "") == "istio-ingressgateway") or ((.labels.job // "") | test("(serviceMonitor|podMonitor)/.*istio-ingressgateway"; "i")))
+                  | select((.discoveredLabels.job // .labels.job // "") | test("istio-system/istio-ingressgateway"; "i"))
                   | {
-                      service: (.discoveredLabels.__meta_kubernetes_service_name // .labels.job // "unknown"),
-                      endpoint: (.discoveredLabels.__meta_kubernetes_endpoints_name // "unknown"),
+                      job: (.labels.job // .discoveredLabels.job // "unknown"),
                       pod: (.discoveredLabels.__meta_kubernetes_pod_name // "unknown"),
                       address: (.discoveredLabels.__address__ // "unknown"),
-                      endpointPort: (.discoveredLabels.__meta_kubernetes_endpoint_port_name // .discoveredLabels.__meta_kubernetes_pod_container_port_name // "unknown"),
+                      endpointPort: (.discoveredLabels.__meta_kubernetes_pod_container_port_name // "unknown"),
                       metricsPath: (.discoveredLabels.__metrics_path__ // "unknown"),
-                      job: (.labels.job // .discoveredLabels.job // "unknown"),
                       scrapeUrl: (.scrapeUrl // "unknown"),
                       health: (.health // "unknown"),
                       lastScrape: (.lastScrape // "unknown"),
@@ -228,38 +210,21 @@ jobs:
                   show && n < 40 { print; n += 1 }
                 '
 
-            echo "--- Prometheus exact podMonitor target probe ---"
-            curl -sS --fail http://localhost:9090/api/v1/targets \
-              | jq -c '
-                  .data.activeTargets[]?
-                  | select((.labels.job // "") == "podMonitor/istio-system/istio-ingressgateway/0")
-                  | {job: .labels.job, scrapeUrl, health, lastScrape, lastError, labels: .labels, discoveredLabels: .discoveredLabels}
-                ' || echo "No active target for podMonitor/istio-system/istio-ingressgateway/0"
-
-            echo "--- Prometheus exact podMonitor dropped target probe ---"
-            curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
-              | jq -c '
-                  .data.droppedTargets[]?
-                  | select((.labels.job // .discoveredLabels.job // "") == "podMonitor/istio-system/istio-ingressgateway/0")
-                  | {job: (.labels.job // .discoveredLabels.job // "unknown"), scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), discoveredLabels: .discoveredLabels}
-                ' || echo "No dropped target for podMonitor/istio-system/istio-ingressgateway/0"
-
-            echo "--- Prometheus exact ingressgateway 15090 podMonitor probe ---"
+            echo "--- Prometheus exact ingressgateway PodMonitor target probe ---"
             curl -sS --fail 'http://localhost:9090/api/v1/targets?state=active' \
               | jq -c '
                   .data.activeTargets[]?
-                  | select((.labels.job // "") | test("podMonitor/istio-system/istio-ingressgateway"; "i"))
-                  | select((.discoveredLabels.__address__ // "") | endswith(":15090"))
-                  | {job: .labels.job, scrapeUrl, health, lastScrape, lastError, labels: .labels, discoveredLabels: .discoveredLabels}
-                ' || echo "No active 15090 podMonitor target found"
+                  | select((.labels.job // "") == "istio-system/istio-ingressgateway")
+                  | {job: .labels.job, scrapeUrl, health, lastScrape, lastError, pod: (.discoveredLabels.__meta_kubernetes_pod_name // "unknown")}
+                ' || echo "No active target for istio-system/istio-ingressgateway"
 
             curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
               | jq -c '
                   .data.droppedTargets[]?
-                  | select((.labels.job // .discoveredLabels.job // "") | test("podMonitor/istio-system/istio-ingressgateway"; "i"))
-                  | select((.discoveredLabels.__address__ // "") | endswith(":15090"))
-                  | {job: (.labels.job // .discoveredLabels.job // "unknown"), scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), labels: (.labels // {}), discoveredLabels: .discoveredLabels}
-                ' || echo "No dropped 15090 podMonitor target found"
+                  | select((.discoveredLabels.job // .labels.job // "") == "istio-system/istio-ingressgateway")
+                  | select((.discoveredLabels.__meta_kubernetes_pod_label_app // "") == "istio-ingressgateway")
+                  | {job: (.labels.job // .discoveredLabels.job // "unknown"), address: (.discoveredLabels.__address__ // "unknown"), endpointPort: (.discoveredLabels.__meta_kubernetes_pod_container_port_name // "unknown")}
+                ' || echo "No dropped ingressgateway PodMonitor targets"
 
             echo "--- Prometheus exact frontend 15090 podMonitor probe ---"
             curl -sS --fail 'http://localhost:9090/api/v1/targets?state=active' \
@@ -280,23 +245,30 @@ jobs:
 
             echo "--- Prometheus Istio request series check ---"
             curl -sS --fail --get 'http://localhost:9090/api/v1/series' \
-              --data-urlencode 'match[]=istio_requests_total{reporter="destination",destination_workload="frontend"}' \
-              --data-urlencode 'match[]=istio_requests_total{reporter="source",source_workload="frontend"}' \
+              --data-urlencode "match[]=istio_requests_total{reporter=\"destination\",destination_canonical_service=\"frontend\",destination_workload_namespace=\"${APP_NS}\"}" \
+              --data-urlencode "match[]=istio_requests_total{reporter=\"destination\",destination_workload=~\"frontend.*\",destination_workload_namespace=\"${APP_NS}\"}" \
               | jq -r '.data[]? | @json' \
               || echo "No istio_requests_total series found for frontend"
 
-            echo "--- Prometheus podMonitor job summary ---"
+            echo "--- Flagger request-success-rate query probe ---"
+            SUCCESS_RATE_QUERY="(sum(rate(istio_requests_total{reporter=\"destination\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",request_protocol=\"http\",response_code!~\"5.*\"}[1m]))/sum(rate(istio_requests_total{reporter=\"destination\",destination_workload_namespace=\"${APP_NS}\",destination_canonical_service=\"frontend\",request_protocol=\"http\"}[1m])))*100"
+            curl -sS --fail --get 'http://localhost:9090/api/v1/query' \
+              --data-urlencode "query=${SUCCESS_RATE_QUERY}" \
+              | jq -c '{status, resultType, value: (.data.result[0].value // ["none","no data"])}' \
+              || echo "Flagger success-rate query returned no data"
+
+            echo "--- Prometheus PodMonitor job summary ---"
             PODMONITOR_TARGETS=$(curl -sS --fail http://localhost:9090/api/v1/targets \
-              | jq -c '.data.activeTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl, health, lastScrape, lastError}')
+              | jq -c '.data.activeTargets[]? | select((.labels.job // "") | test("istio-system/istio-ingressgateway|'"${APP_NS}"'/frontend")) | {job: .labels.job, scrapeUrl, health, lastScrape, lastError}')
             if [ -n "$PODMONITOR_TARGETS" ]; then
               echo "$PODMONITOR_TARGETS"
             else
               echo "No active podMonitor targets found"
             fi
 
-            echo "--- Prometheus podMonitor dropped target summary ---"
+            echo "--- Prometheus PodMonitor dropped target summary ---"
             DROPPED_PODMONITOR_TARGETS=$(curl -sS --fail 'http://localhost:9090/api/v1/targets?state=dropped' \
-              | jq -c '.data.droppedTargets[]? | select((.labels.job // "") | test("podMonitor"; "i")) | {job: .labels.job, scrapeUrl: (.scrapeUrl // "unknown"), health: (.health // "unknown"), lastScrape: (.lastScrape // "unknown"), lastError: (.lastError // "unknown"), discoveredLabels: .discoveredLabels}')
+              | jq -c '.data.droppedTargets[]? | select((.discoveredLabels.job // .labels.job // "") | test("istio-system/istio-ingressgateway|'"${APP_NS}"'/frontend")) | {job: (.labels.job // .discoveredLabels.job // "unknown"), address: (.discoveredLabels.__address__ // "unknown"), endpointPort: (.discoveredLabels.__meta_kubernetes_pod_container_port_name // "unknown")}')
             if [ -n "$DROPPED_PODMONITOR_TARGETS" ]; then
               echo "$DROPPED_PODMONITOR_TARGETS"
             else

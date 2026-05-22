@@ -13,6 +13,6 @@ spec:
     matchLabels:
       app: frontend
   podMetricsEndpoints:
-    - portNumber: 15090
+    - port: http-envoy-prom
       path: /stats/prometheus
       interval: 15s
