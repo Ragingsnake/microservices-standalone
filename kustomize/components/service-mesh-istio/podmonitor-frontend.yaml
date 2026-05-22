@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: frontend
+  namespace: onlineboutique
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - onlineboutique
+  selector:
+    matchLabels:
+      app: frontend
+  podMetricsEndpoints:
+    - portNumber: 15090
+      path: /stats/prometheus
+      interval: 15s
