@@ -153,6 +153,9 @@ loadGenerator:
       cpu: 500m
       memory: 512Mi
 
+serviceMeshIstio:
+  create: true
+
 paymentService:
   create: true
   name: paymentservice
