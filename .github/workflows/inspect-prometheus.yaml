@@ -153,6 +153,15 @@ jobs:
                   n >= 40 { exit }
                 '
 
+            echo "--- Prometheus rendered serviceMonitor job block ---"
+            curl -sS --fail http://localhost:9090/api/v1/status/config \
+              | jq -r '.data.yaml' \
+              | awk '
+                  /^- job_name: serviceMonitor\/istio-system\/istio-ingressgateway\/0$/ { print; show = 1; n = 0; next }
+                  show { print; n += 1 }
+                  n >= 40 { exit }
+                '
+
             echo "--- Prometheus exact podMonitor target probe ---"
             curl -sS --fail http://localhost:9090/api/v1/targets \
               | jq -c '
