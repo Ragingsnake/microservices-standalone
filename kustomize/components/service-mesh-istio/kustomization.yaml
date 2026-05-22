@@ -19,6 +19,7 @@ resources:
   - frontend-gateway.yaml
   - frontend.yaml
   - servicemonitor-istio-ingressgateway.yaml
+  - podmonitor-istio-ingressgateway.yaml
 patches:
 # frontend - delete frontend-external service (same as non-public-frontend component)
 - patch: |-
