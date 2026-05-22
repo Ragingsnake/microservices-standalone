@@ -107,7 +107,9 @@ jobs:
             fi
 
             echo "--- Prometheus series for the ingressgateway scrape job ---"
-            INGRESS_JOB_SERIES=$(curl -sS --fail 'http://localhost:9090/api/v1/series?match[]=up{job="serviceMonitor/istio-system/istio-ingressgateway/0"}' )
+            INGRESS_JOB_SERIES=$(curl -sS --fail --get \
+              --data-urlencode 'match[]=up{job="serviceMonitor/istio-system/istio-ingressgateway/0"}' \
+              http://localhost:9090/api/v1/series)
             printf '%s\n' "$INGRESS_JOB_SERIES"
 
             if printf '%s' "$INGRESS_JOB_SERIES" | jq -e '.data | length > 0' >/dev/null 2>&1; then
