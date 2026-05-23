@@ -14,27 +14,27 @@ We also host a test GKE cluster, which is where the deploy tests run. Every PR h
 
 ### Code Tests - [ci-pr.yaml](ci-pr.yaml)
 
-These tests run on every commit for every open PR, as well as any commit to main / any release branch. Currently, this workflow runs only Go unit tests.
+This workflow runs on pull requests targeting `main` and performs repository-level CI checks, including Go and C# unit tests.
 
+### Deploy Tests - [ci-pr.yaml](ci-pr.yaml)
 
-### Deploy Tests- [ci-pr.yaml](ci-pr.yaml)
+This workflow also contains a PR deployment stage that builds and deploys the current PR to a test cluster using `skaffold run`. It then verifies the application pods startup, obtains the frontend staging endpoint, and reports that endpoint back to the PR.
 
-These tests run on every commit for every open PR, as well as any commit to main / any release branch. This workflow:
+### Deploy to AWS EKS - [deploy.yml](deploy.yml)
 
-1. Creates a dedicated GKE namespace for that PR, if it doesn't already exist, in the PR GKE cluster.
-2. Uses `skaffold run` to build and push the images specific to that PR commit. Then skaffold deploys those images, via `kubernetes-manifests`, to the PR namespace in the test cluster.
-3. Tests to make sure all the pods start up and become ready.
-4. Gets the LoadBalancer IP for the frontend service.
-5. Comments that IP in the pull request, for staging.
+This workflow controls production deployment and infrastructure provisioning. It is triggered on pushes to `main` and via manual dispatch, but the deployment job only runs when the workflow is manually triggered or the head commit message contains `[deploy-aws]`.
 
-### Push and Deploy Latest - [push-deploy](push-deploy.yml)
+This workflow:
 
-This is the Continuous Deployment workflow, and it runs on every commit to the main branch. This workflow:
+1. Provisions or updates AWS EKS infrastructure using Terraform.
+2. Updates the kubeconfig for the target EKS cluster.
+3. Installs or configures ArgoCD, Istio, monitoring, and Flagger.
+4. Deploys the microservices via ArgoCD.
+5. Waits for the frontend ingress endpoint and outputs the deployment URL.
 
-1. Builds the container images for every service, tagging as `latest`.
-2. Pushes those images to Google Container Registry.
+### Build and Push Docker Images - [docker-build-push.yml](docker-build-push.yml)
 
-Note that this workflow does not update the image tags used in `release/kubernetes-manifests.yaml` - these release manifests are tied to a stable `v0.x.x` release.
+This workflow detects changed services and builds only the affected Docker images. It can also be manually triggered to rebuild all images.
 
 ### Cleanup - [cleanup.yaml](cleanup.yaml)
 
